@@ -10,6 +10,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@types/node": "^22.13.11"
+    "@types/node": "^22.13.11",
+    "discord.js": "^14.19.3",
+    "dotenv": "^16.5.0",
+    "googleapis": "^150.0.1",
+    "node-cron": "^4.1.0"
   }
 }
