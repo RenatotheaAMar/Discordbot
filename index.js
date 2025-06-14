@@ -1,4 +1,3 @@
-
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events } = require('discord.js');
 const schedule = require('node-schedule');
 const { google } = require('googleapis');
@@ -31,16 +30,16 @@ client.once('ready', () => {
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId('anwesend')
-        .setLabel('🟢 Anwesend')
+        .setCustomId('Teilnahme')
+        .setLabel('🟢 Teilnahme')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId('abgemeldet')
+        .setCustomId('Abgemeldet')
         .setLabel('🔴 Abgemeldet')
         .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
-        .setCustomId('spaeter')
-        .setLabel('🟡 Später')
+        .setCustomId('Kommt später')
+        .setLabel('🟡 Kommt später')
         .setStyle(ButtonStyle.Secondary)
     );
 
@@ -56,16 +55,16 @@ client.on('messageCreate', message => {
   if (message.content === '!test') {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId('anwesend')
-        .setLabel('🟢 Anwesend')
+        .setCustomId('Teilnahme')
+        .setLabel('🟢 Teilnahme')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId('abgemeldet')
+        .setCustomId('Abgemeldet')
         .setLabel('🔴 Abgemeldet')
         .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
-        .setCustomId('spaeter')
-        .setLabel('🟡 Später')
+        .setCustomId('Kommt später')
+        .setLabel('🟡 Kommt später')
         .setStyle(ButtonStyle.Secondary)
     );
 
