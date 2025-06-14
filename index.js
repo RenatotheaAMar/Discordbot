@@ -1,7 +1,16 @@
 
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events } = require('discord.js');
 const schedule = require('node-schedule');
+const { google } = require('googleapis');
 require('dotenv').config();
+
+// Google Sheets Setup
+const auth = new google.auth.GoogleAuth({
+  keyFile: './google-service-account.json',
+  scopes: ['https://www.googleapis.com/auth/spreadsheets']
+});
+
+const sheets = google.sheets({ version: 'v4', auth });
 
 const client = new Client({
   intents: [
@@ -74,12 +83,31 @@ client.on(Events.InteractionCreate, async interaction => {
   const user = interaction.user.username;
   const auswahl = interaction.customId;
 
+  // In Google Sheets eintragen
+  try {
+    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+    const now = new Date();
+    const datum = now.toLocaleDateString('de-DE');
+    const zeit = now.toLocaleTimeString('de-DE');
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: 'A:D', // Spalten A bis D
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [[datum, zeit, user, auswahl]]
+      }
+    });
+
+    console.log(`📝 ${user} als "${auswahl}" in Google Sheets eingetragen`);
+  } catch (error) {
+    console.error('❌ Fehler beim Google Sheets eintragen:', error);
+  }
+
   await interaction.reply({
     content: `✅ ${user} hat sich als **${auswahl}** eingetragen.`,
     ephemeral: true
   });
-
-  // Hier könnte man Daten in Google Sheets eintragen (später)
 });
 
 client.login(process.env.DISCORD_TOKEN);
