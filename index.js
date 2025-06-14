@@ -42,6 +42,31 @@ client.once('ready', () => {
   });
 });
 
+// Test-Befehl zum sofortigen Testen
+client.on('messageCreate', message => {
+  if (message.content === '!test') {
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('anwesend')
+        .setLabel('🟢 Anwesend')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId('abgemeldet')
+        .setLabel('🔴 Abgemeldet')
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId('spaeter')
+        .setLabel('🟡 Später')
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    message.channel.send({
+      content: '📋 **TEST** - Bitte tragt euch ein:',
+      components: [row]
+    });
+  }
+});
+
 // Wenn ein Button gedrückt wird
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isButton()) return;
