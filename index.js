@@ -146,8 +146,7 @@ client.on(Events.InteractionCreate, async interaction => {
         });
       }
 
-      await sendTeilnehmerTabelle(interaction.channel);
-      await interaction.deferUpdate();
+    await interaction.deferUpdate(); // Kein erneutes Senden der Tabelle
     } catch (error) {
       console.error('❌ Fehler:', error);
     }
