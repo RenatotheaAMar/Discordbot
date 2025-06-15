@@ -1,198 +1,322 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events } = require('discord.js');
+const keep_alive = require('./keep_alive.js');
+const {
+  Client,
+  GatewayIntentBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  Events,
+  EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  REST,
+  Routes,
+  SlashCommandBuilder
+} = require('discord.js');
 const schedule = require('node-schedule');
 const { google } = require('googleapis');
+const express = require('express');
 require('dotenv').config();
 
-// Google Sheets Setup
+// 🔐 Google Sheets Setup
 const auth = new google.auth.GoogleAuth({
   keyFile: './google-service-account.json',
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
-
 const sheets = google.sheets({ version: 'v4', auth });
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ]
 });
 
-client.once('ready', () => {
+let lastEmbedMessageId = null;
+
+// Slash Commands
+const commands = [
+  new SlashCommandBuilder().setName('reset').setDescription('🧹 Reset Tabelle'),
+  new SlashCommandBuilder().setName('tabelle').setDescription('📋 Zeige Tabelle erneut'),
+  new SlashCommandBuilder().setName('erinnerung').setDescription('🔔 Sende Erinnerung')
+].map(cmd => cmd.toJSON());
+
+client.once('ready', async () => {
   console.log(`✅ Bot ist online als: ${client.user.tag}`);
 
-  // Jeden Tag um 7 Uhr morgens (05:00 UTC)
-  schedule.scheduleJob('0 5 * * *', () => {
-    const channelId = process.env.CHANNEL_ID;
-    const channel = client.channels.cache.get(channelId);
-    if (!channel) return console.log('❌ Channel nicht gefunden.');
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('Teilnahme')
-        .setLabel('🟢 Teilnahme')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId('Abgemeldet')
-        .setLabel('🔴 Abgemeldet')
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId('Kommt später')
-        .setLabel('🟡 Kommt später')
-        .setStyle(ButtonStyle.Secondary)
-    );
-
-    channel.send({
-      content: '📋 Guten Morgen! Bitte tragt euch ein:',
-      components: [row]
-    });
+  // 📆 Zeitgesteuerte Aufgaben
+  schedule.scheduleJob({ hour: 5, minute: 0, tz: 'Europe/Berlin' }, async () => {
+    const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
+    if (ch) {
+      await resetSheetValues();
+      await sendTeilnehmerTabelle(ch);
+    }
   });
+
+  schedule.scheduleJob({ hour: 7, minute: 0, dayOfWeek: 1, tz: 'Europe/Berlin' }, async () => {
+    const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
+    if (ch) await sendTeilnehmerTabelle(ch);
+  });
+
+  schedule.scheduleJob({ hour: 19, minute: 45, tz: 'Europe/Berlin' }, async () => {
+    const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
+    if (ch) await sendErinnerung(ch);
+  });
+
+  const initCh = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
+  if (initCh) sendTeilnehmerTabelle(initCh);
 });
 
-// Test-Befehl zum sofortigen Testen
-client.on('messageCreate', message => {
-  if (message.content === '!test') {
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('Teilnahme')
-        .setLabel('🟢 Teilnahme')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId('Abgemeldet')
-        .setLabel('🔴 Abgemeldet')
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId('Kommt später')
-        .setLabel('🟡 Kommt später')
-        .setStyle(ButtonStyle.Secondary)
-    );
+// 💬 Slash- und Button-Interaktionen
+client.on(Events.InteractionCreate, async interaction => {
+  if (interaction.isCommand()) {
+    const { commandName } = interaction;
 
-    message.channel.send({
-      content: '📋 **TEST** - Bitte tragt euch ein:',
-      components: [row]
-    });
+    if (commandName === 'reset') {
+      await interaction.reply({ content: '🧹 Zurücksetzen...', ephemeral: true });
+      await resetSheetValues();
+      await sendTeilnehmerTabelle(interaction.channel);
+    } else if (commandName === 'tabelle') {
+      await interaction.reply({ content: '📋 Sende Tabelle...', ephemeral: true });
+      await sendTeilnehmerTabelle(interaction.channel);
+    } else if (commandName === 'erinnerung') {
+      await interaction.reply({ content: '🔔 Erinnerung wird gesendet...', ephemeral: true });
+      await sendErinnerung(interaction.channel);
+    }
+    return;
+  }
+
+  if (interaction.isButton()) {
+    const userName = interaction.member?.displayName || interaction.user.username;
+    const auswahl = interaction.customId;
+
+    if (auswahl === 'Langzeit') {
+      if (interaction.replied || interaction.deferred) return;
+
+      const modal = new ModalBuilder().setCustomId('langzeitModal').setTitle('Langzeit-Abmeldung');
+      const dateInput = new TextInputBuilder()
+        .setCustomId('langzeitDatum')
+        .setLabel('Bis wann bist du abgemeldet? (TT.MM.JJJJ)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+      const reasonInput = new TextInputBuilder()
+        .setCustomId('langzeitGrund')
+        .setLabel('Grund deiner Abmeldung')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true);
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(dateInput),
+        new ActionRowBuilder().addComponents(reasonInput)
+      );
+      await interaction.showModal(modal);
+      return;
+    }
+
+    try {
+      const spreadsheetId = process.env.SHEET_ID;
+      const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
+      const rows = response.data.values || [];
+      let updated = false;
+
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i][0] === userName) {
+          await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `B${i + 2}`,
+            valueInputOption: 'RAW',
+            requestBody: { values: [[auswahl]] }
+          });
+          updated = true;
+          break;
+        }
+      }
+
+      if (!updated) {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: 'Status!A:C',
+          valueInputOption: 'RAW',
+          requestBody: { values: [[userName, auswahl, '']] }
+        });
+      }
+
+      await sendTeilnehmerTabelle(interaction.channel);
+      await interaction.deferUpdate();
+    } catch (error) {
+      console.error('❌ Fehler:', error);
+    }
+    return;
+  }
+
+  if (interaction.isModalSubmit() && interaction.customId === 'langzeitModal') {
+    const userName = interaction.member?.displayName || interaction.user.username;
+    const datumInput = interaction.fields.getTextInputValue('langzeitDatum');
+    const grund = interaction.fields.getTextInputValue('langzeitGrund');
+
+    try {
+      const spreadsheetId = process.env.SHEET_ID;
+      const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
+      const rows = response.data.values || [];
+      let updated = false;
+
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i][0] === userName) {
+          await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: `B${i + 2}:C${i + 2}`,
+            valueInputOption: 'RAW',
+            requestBody: { values: [['Langzeitabmeldung', datumInput]] }
+          });
+          updated = true;
+          break;
+        }
+      }
+
+      if (!updated) {
+        await sheets.spreadsheets.values.append({
+          spreadsheetId,
+          range: 'Status!A:C',
+          valueInputOption: 'RAW',
+          requestBody: { values: [[userName, 'Langzeitabmeldung', datumInput]] }
+        });
+      }
+
+      const excuseChannel = client.channels.cache.get(process.env.EXCUSE_CHANNEL_ID);
+      if (excuseChannel) {
+        await excuseChannel.send(`📌 **Langzeit-Abmeldung**\n👤 **${userName}**\n📅 Bis: **${datumInput}**\n📝 Grund: ${grund}`);
+      }
+
+      await interaction.reply({
+        content: `✅ Deine Abmeldung wurde erfasst.`,
+        ephemeral: true
+      });
+    } catch (err) {
+      console.error('❌ Fehler:', err);
+      await interaction.reply({ content: '⚠️ Fehler beim Eintragen.', ephemeral: true });
+    }
+    return;
   }
 });
 
-// Funktion um zu prüfen wer noch nicht reagiert hat
-async function updateResponseStatus() {
+async function sendTeilnehmerTabelle(channel) {
   try {
-    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-    
-    // Alle Daten aus dem Sheet lesen
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'A:E' // Alle Spalten lesen
-    });
-    
+    const spreadsheetId = process.env.SHEET_ID;
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
     const rows = response.data.values || [];
-    
-    // Heute reagierte Personen finden
-    const heute = new Date().toLocaleDateString('de-DE');
-    const heuteReagiert = new Set();
-    
-    for (let i = 1; i < rows.length; i++) { // Zeile 0 überspringen (Header)
-      const [name, status, abmeldedatum, reagiert, autoLoeschen] = rows[i];
-      if (name && status && rows[i].includes(heute)) {
-        heuteReagiert.add(name);
+
+    const teilnahme = [], abgemeldet = [], spaeter = [], reagiert = new Set();
+
+    for (const row of rows) {
+      const [name, status, langzeit] = row;
+      if (!name || status === 'Langzeitabmeldung') continue;
+
+      if (status === 'Teilnahme') teilnahme.push(name);
+      else if (status === 'Abgemeldet') abgemeldet.push(name);
+      else if (status === 'Kommt später') spaeter.push(name);
+
+      if (status) reagiert.add(name);
+    }
+
+    const alleNamen = rows.filter(r => r[1] !== 'Langzeitabmeldung').map(r => r[0]).filter(n => n);
+    const nichtReagiert = alleNamen.filter(name => !reagiert.has(name));
+
+    const embed = new EmbedBuilder()
+      .setTitle('📋 **Aufstellung**')
+      .setDescription('🕗 Aufstellung 20 Uhr! Reagierpflicht!')
+      .addFields(
+        { name: `✅ Teilnahme (${teilnahme.length})`, value: teilnahme.join('\n') || '–', inline: true },
+        { name: `❌ Abgemeldet (${abgemeldet.length})`, value: abgemeldet.join('\n') || '–', inline: true },
+        { name: `⏰ Später anwesend (${spaeter.length})`, value: spaeter.join('\n') || '–', inline: true },
+        { name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`, value: nichtReagiert.join('\n') || '–' }
+      )
+      .setColor('#2ecc71')
+      .setFooter({ text: 'Bitte tragt euch rechtzeitig ein!' })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('Teilnahme').setLabel('🟢 Teilnahme').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('Abgemeldet').setLabel('❌ Abgemeldet').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('Kommt später').setLabel('⏰ Später anwesend').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('Langzeit').setLabel('📆 Langzeit-Abmeldung').setStyle(ButtonStyle.Primary)
+    );
+
+    if (lastEmbedMessageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(lastEmbedMessageId);
+        await oldMsg.edit({ embeds: [embed], components: [row] });
+        return;
+      } catch (e) {
+        console.log('⚠️ Vorherige Nachricht nicht gefunden.');
       }
     }
-    
-    // Alle Personen durchgehen und "Reagiert?" Status aktualisieren
-    const updates = [];
-    for (let i = 1; i < rows.length; i++) {
-      const [name] = rows[i];
-      if (name && name.trim() !== '') {
-        const hatReagiert = heuteReagiert.has(name) ? 'Ja' : 'Nein';
-        updates.push([`D${i + 1}`, hatReagiert]); // Spalte D = "Reagiert?"
-      }
-    }
-    
-    // Batch-Update für alle "Reagiert?" Spalten
-    if (updates.length > 0) {
-      const batchUpdate = {
-        spreadsheetId,
-        resource: {
-          valueInputOption: 'RAW',
-          data: updates.map(([range, value]) => ({
-            range,
-            values: [[value]]
-          }))
-        }
-      };
-      
-      await sheets.spreadsheets.values.batchUpdate(batchUpdate);
-      console.log(`📊 ${updates.length} Antwort-Status aktualisiert`);
-    }
-    
+
+    const newMsg = await channel.send({ content: '📋 **Bitte Status wählen:**', components: [row], embeds: [embed] });
+    lastEmbedMessageId = newMsg.id;
   } catch (error) {
-    console.error('❌ Fehler beim Status-Update:', error);
+    console.error('❌ Fehler beim Senden der Tabelle:', error);
   }
 }
 
-// Wenn ein Button gedrückt wird
-client.on(Events.InteractionCreate, async interaction => {
-  if (!interaction.isButton()) return;
-
-  // Display Name (Server-Nickname) verwenden
-  const userName = interaction.member?.displayName || interaction.user.username;
-  const auswahl = interaction.customId;
-
-  // In Google Sheets eintragen - exakt wie deine Excel-Struktur
+async function resetSheetValues() {
   try {
-    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
-    
-    // Prüfen ob Person bereits in der Liste steht
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: 'A:E'
-    });
-    
+    const spreadsheetId = process.env.SHEET_ID;
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
     const rows = response.data.values || [];
-    let zeilenfunden = false;
-    
-    // Suche nach der Person in der Liste
-    for (let i = 1; i < rows.length; i++) {
-      if (rows[i][0] === userName) { // Spalte A = Name
-        // Person gefunden - Status in Spalte B aktualisieren
-        await sheets.spreadsheets.values.update({
-          spreadsheetId,
-          range: `B${i + 1}`, // Spalte B = Status
-          valueInputOption: 'RAW',
-          requestBody: {
-            values: [[auswahl]]
-          }
-        });
-        zeilenfunden = true;
-        break;
-      }
-    }
-    
-    // Falls Person nicht in der Liste steht, neue Zeile hinzufügen
-    if (!zeilenfunden) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: 'A:E',
-        valueInputOption: 'RAW',
-        requestBody: {
-          values: [[userName, auswahl, '', '', '']] // Name, Status, leer, leer, leer
-        }
-      });
-    }
-    
-    // "Reagiert?" Status für alle aktualisieren
-    await updateResponseStatus();
 
-    console.log(`📝 ${userName} als "${auswahl}" eingetragen`);
+    const updates = rows.map(row => {
+      return row[1] === 'Langzeitabmeldung' ? ['Langzeitabmeldung', row[2] || ''] : ['', ''];
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: 'Status!B2:C',
+      valueInputOption: 'RAW',
+      requestBody: { values: updates }
+    });
   } catch (error) {
-    console.error('❌ Fehler beim Google Sheets eintragen:', error);
+    console.error('❌ Fehler beim Zurücksetzen der Tabelle:', error);
   }
+}
 
-  await interaction.reply({
-    content: `✅ ${userName} hat sich als **${auswahl}** eingetragen.`,
-    ephemeral: true
-  });
+async function sendErinnerung(channel) {
+  try {
+    const spreadsheetId = process.env.SHEET_ID;
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
+    const rows = response.data.values || [];
+
+    const teilnehmerNamen = rows.filter(row => row[1] === 'Teilnahme').map(row => row[0]);
+    const guild = channel.guild;
+    const mentions = [];
+
+    for (const name of teilnehmerNamen) {
+      const member = guild.members.cache.find(m => m.displayName === name || m.user.username === name);
+      if (member) mentions.push(`<@${member.id}>`);
+    }
+
+    if (mentions.length > 0) {
+      await channel.send(`🔔 **Erinnerung:** Aufstellung in 15 Minuten!\n${mentions.join(', ')}`);
+    } else {
+      await channel.send('ℹ️ Keine gültigen Teilnehmer zum Erinnern gefunden.');
+    }
+  } catch (err) {
+    console.error('❌ Fehler bei der Erinnerung:', err);
+  }
+}
+
+// 🌐 Mini-Webserver für Replit / UptimeRobot etc.
+const app = express();
+app.get('/', (req, res) => {
+  res.send('✅ Bot läuft!');
+});
+app.listen(3000, () => {
+  console.log('🌐 Webserver läuft auf Port 3000');
 });
 
+// 🚀 Bot starten
 client.login(process.env.DISCORD_TOKEN);
