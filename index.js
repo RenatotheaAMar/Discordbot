@@ -1,4 +1,4 @@
-const keep_alive = require('./keep_alive.js');
+const keep_alive = require('./keep_alive.js'); 
 const {
   Client,
   GatewayIntentBits,
@@ -17,6 +17,7 @@ const {
 const schedule = require('node-schedule');
 const { google } = require('googleapis');
 const express = require('express');
+const fs = require('fs');
 require('dotenv').config();
 
 // 🔐 Google Sheets Setup
@@ -37,6 +38,19 @@ const client = new Client({
 
 let lastEmbedMessageId = null;
 
+function saveLastMessageId(id) {
+  fs.writeFileSync('./lastMessage.json', JSON.stringify({ id }));
+}
+
+function loadLastMessageId() {
+  try {
+    const data = JSON.parse(fs.readFileSync('./lastMessage.json'));
+    return data.id;
+  } catch {
+    return null;
+  }
+}
+
 // Slash Commands
 const commands = [
   new SlashCommandBuilder().setName('reset').setDescription('🧹 Reset Tabelle'),
@@ -55,13 +69,13 @@ client.once('ready', async () => {
     const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
     if (ch) {
       await resetSheetValues();
-      await sendTeilnehmerTabelle(ch);
+      await sendTeilnehmerTabelle(ch, true);
     }
   });
 
-  schedule.scheduleJob({ hour: 7, minute: 0, dayOfWeek: 1, tz: 'Europe/Berlin' }, async () => {
+  schedule.scheduleJob({ hour: 7, minute: 0, tz: 'Europe/Berlin' }, async () => {
     const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
-    if (ch) await sendTeilnehmerTabelle(ch);
+    if (ch) await sendTeilnehmerTabelle(ch, true);
   });
 
   schedule.scheduleJob({ hour: 19, minute: 45, tz: 'Europe/Berlin' }, async () => {
@@ -70,10 +84,9 @@ client.once('ready', async () => {
   });
 
   const initCh = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
-  if (initCh) sendTeilnehmerTabelle(initCh);
+  if (initCh) sendTeilnehmerTabelle(initCh, true);
 });
 
-// 💬 Slash- und Button-Interaktionen
 client.on(Events.InteractionCreate, async interaction => {
   if (interaction.isCommand()) {
     const { commandName } = interaction;
@@ -146,7 +159,9 @@ client.on(Events.InteractionCreate, async interaction => {
         });
       }
 
-    await interaction.deferUpdate(); // Kein erneutes Senden der Tabelle
+      await interaction.deferUpdate();
+      const msgChannel = await client.channels.fetch(process.env.LINEUP_CHANNEL_ID);
+      if (msgChannel) await sendTeilnehmerTabelle(msgChannel);
     } catch (error) {
       console.error('❌ Fehler:', error);
     }
@@ -203,7 +218,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-async function sendTeilnehmerTabelle(channel) {
+async function sendTeilnehmerTabelle(channel, forceNew = false) {
   try {
     const spreadsheetId = process.env.SHEET_ID;
     const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
@@ -245,18 +260,22 @@ async function sendTeilnehmerTabelle(channel) {
       new ButtonBuilder().setCustomId('Langzeit').setLabel('📆 Langzeit-Abmeldung').setStyle(ButtonStyle.Primary)
     );
 
-    if (lastEmbedMessageId) {
-      try {
-        const oldMsg = await channel.messages.fetch(lastEmbedMessageId);
-        await oldMsg.edit({ embeds: [embed], components: [row] });
-        return;
-      } catch (e) {
-        console.log('⚠️ Vorherige Nachricht nicht gefunden.');
+    if (!forceNew) {
+      const savedId = loadLastMessageId();
+      if (savedId) {
+        try {
+          const oldMsg = await channel.messages.fetch(savedId);
+          await oldMsg.edit({ embeds: [embed], components: [row] });
+          return;
+        } catch (e) {
+          console.log('⚠️ Vorherige Nachricht nicht gefunden.');
+        }
       }
     }
 
     const newMsg = await channel.send({ content: '📋 **Bitte Status wählen:**', components: [row], embeds: [embed] });
     lastEmbedMessageId = newMsg.id;
+    saveLastMessageId(newMsg.id);
   } catch (error) {
     console.error('❌ Fehler beim Senden der Tabelle:', error);
   }
@@ -308,7 +327,6 @@ async function sendErinnerung(channel) {
   }
 }
 
-// 🌐 Mini-Webserver für Replit / UptimeRobot etc.
 const app = express();
 app.get('/', (req, res) => {
   res.send('✅ Bot läuft!');
@@ -317,5 +335,4 @@ app.listen(3000, () => {
   console.log('🌐 Webserver läuft auf Port 3000');
 });
 
-// 🚀 Bot starten
 client.login(process.env.DISCORD_TOKEN);
