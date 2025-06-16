@@ -65,14 +65,6 @@ client.once('ready', async () => {
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
   // 📆 Zeitgesteuerte Aufgaben
-  schedule.scheduleJob({ hour: 5, minute: 0, tz: 'Europe/Berlin' }, async () => {
-    const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
-    if (ch) {
-      await resetSheetValues();
-      await sendTeilnehmerTabelle(ch, true);
-    }
-  });
-
   schedule.scheduleJob({ hour: 7, minute: 0, tz: 'Europe/Berlin' }, async () => {
     const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
     if (ch) await sendTeilnehmerTabelle(ch, true);
