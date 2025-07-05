@@ -1,4 +1,4 @@
-const keep_alive = require('./keep_alive.js'); 
+const keep_alive = require('./keep_alive.js');
 const {
   Client,
   GatewayIntentBits,
@@ -64,7 +64,7 @@ client.once('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
-  // 📆 Zeitgesteuerte Aufgaben
+  // Zeitgesteuerte Aufgaben
   schedule.scheduleJob({ hour: 5, minute: 0, tz: 'Europe/Berlin' }, async () => {
     const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
     if (ch) {
@@ -224,39 +224,43 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
     const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
     const rows = response.data.values || [];
 
-    const teilnahme = [], abgemeldet = [], spaeter = [], reagiert = new Set();
+    const teilnahme = [], abgemeldet = [], spaeter = [], langzeit = [], reagiert = new Set();
 
     for (const row of rows) {
-      const [name, status, langzeit] = row;
-      if (!name || status === 'Langzeitabmeldung') continue;
+      const [name, status, datum] = row;
+      if (!name) continue;
 
       if (status === 'Teilnahme') teilnahme.push(name);
       else if (status === 'Abgemeldet') abgemeldet.push(name);
       else if (status === 'Kommt später') spaeter.push(name);
+      else if (status === 'Langzeitabmeldung') langzeit.push(`${name} (bis ${datum})`);
 
-      if (status) reagiert.add(name);
+      if (status && status !== 'Langzeitabmeldung') reagiert.add(name);
     }
 
-    const alleNamen = rows.filter(r => r[1] !== 'Langzeitabmeldung').map(r => r[0]).filter(n => n);
-    const nichtReagiert = alleNamen.filter(name => !reagiert.has(name));
+    const alleNamen = rows.map(r => r[0]).filter(n => n);
+    const nichtReagiert = alleNamen.filter(name => !reagiert.has(name) && !langzeit.some(e => e.startsWith(name)));
+
+    let embedDescription = '```md\n📋 Aufstellung für heute:\n\n';
+    embedDescription += `✅ Teilnahme (${teilnahme.length})\n${teilnahme.map(n => `– ${n}`).join('\n') || '–'}\n\n`;
+    embedDescription += `❌ Abgemeldet (${abgemeldet.length})\n${abgemeldet.map(n => `– ${n}`).join('\n') || '–'}\n\n`;
+    embedDescription += `⏰ Kommt später (${spaeter.length})\n${spaeter.map(n => `– ${n}`).join('\n') || '–'}\n\n`;
+    embedDescription += `⚠️ Noch nicht reagiert (${nichtReagiert.length})\n${nichtReagiert.map(n => `– ${n}`).join('\n') || '–'}\n`;
+    if (langzeit.length > 0) {
+      embedDescription += `\n📆 Langzeitabmeldungen\n${langzeit.map(n => `– ${n}`).join('\n')}`;
+    }
+    embedDescription += '\n```';
 
     const embed = new EmbedBuilder()
-      .setTitle('📋 **Aufstellung**')
-      .setDescription('🕗 Aufstellung 20 Uhr! Reagierpflicht!')
-      .addFields(
-        { name: `✅ Teilnahme (${teilnahme.length})`, value: teilnahme.join('\n') || '–', inline: true },
-        { name: `❌ Abgemeldet (${abgemeldet.length})`, value: abgemeldet.join('\n') || '–', inline: true },
-        { name: `⏰ Später anwesend (${spaeter.length})`, value: spaeter.join('\n') || '–', inline: true },
-        { name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`, value: nichtReagiert.join('\n') || '–' }
-      )
       .setColor('#2ecc71')
+      .setDescription(embedDescription)
       .setFooter({ text: 'Bitte tragt euch rechtzeitig ein!' })
       .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('Teilnahme').setLabel('🟢 Teilnahme').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('Abgemeldet').setLabel('❌ Abgemeldet').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId('Kommt später').setLabel('⏰ Später anwesend').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('Kommt später').setLabel('⏰ Später').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('Langzeit').setLabel('📆 Langzeit-Abmeldung').setStyle(ButtonStyle.Primary)
     );
 
