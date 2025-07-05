@@ -1,4 +1,4 @@
-const keep_alive = require('./keep_alive.js');  
+const keep_alive = require('./keep_alive.js'); 
 const {
   Client,
   GatewayIntentBits,
@@ -65,6 +65,14 @@ client.once('ready', async () => {
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
   // 📆 Zeitgesteuerte Aufgaben
+  schedule.scheduleJob({ hour: 5, minute: 0, tz: 'Europe/Berlin' }, async () => {
+    const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
+    if (ch) {
+      await resetSheetValues();
+      await sendTeilnehmerTabelle(ch, true);
+    }
+  });
+
   schedule.scheduleJob({ hour: 7, minute: 0, tz: 'Europe/Berlin' }, async () => {
     const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
     if (ch) await sendTeilnehmerTabelle(ch, true);
@@ -199,7 +207,7 @@ client.on(Events.InteractionCreate, async interaction => {
       }
 
       await interaction.reply({
-        content: '✅ Deine Abmeldung wurde erfasst.',
+        content: `✅ Deine Abmeldung wurde erfasst.`,
         ephemeral: true
       });
     } catch (err) {
@@ -210,18 +218,13 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// --------------- Neue verbesserte Tabelle ---------------
-
 async function sendTeilnehmerTabelle(channel, forceNew = false) {
   try {
     const spreadsheetId = process.env.SHEET_ID;
     const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
     const rows = response.data.values || [];
 
-    const teilnahme = [];
-    const abgemeldet = [];
-    const spaeter = [];
-    const reagiert = new Set();
+    const teilnahme = [], abgemeldet = [], spaeter = [], reagiert = new Set();
 
     for (const row of rows) {
       const [name, status, langzeit] = row;
@@ -237,37 +240,17 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
     const alleNamen = rows.filter(r => r[1] !== 'Langzeitabmeldung').map(r => r[0]).filter(n => n);
     const nichtReagiert = alleNamen.filter(name => !reagiert.has(name));
 
-    teilnahme.sort((a,b) => a.localeCompare(b));
-    abgemeldet.sort((a,b) => a.localeCompare(b));
-    spaeter.sort((a,b) => a.localeCompare(b));
-    nichtReagiert.sort((a,b) => a.localeCompare(b));
-
-   let embedDescription = '```md\n📋 Bitte Status wählen:\n\n';
-
-embedDescription += `✅ Teilnahme (${teilnahme.length})\n`;
-embedDescription += teilnahme.map(name => `– ${name}`).join('\n') || '–';
-embedDescription += '\n\n';
-
-embedDescription += `❌ Abgemeldet (${abgemeldet.length})\n`;
-embedDescription += abgemeldet.map(name => `– ${name}`).join('\n') || '–';
-embedDescription += '\n\n';
-
-embedDescription += `⏰ Später anwesend (${spaeter.length})\n`;
-embedDescription += spaeter.map(name => `– ${name}`).join('\n') || '–';
-embedDescription += '\n\n';
-
-embedDescription += `⚠️ Noch nicht reagiert (${nichtReagiert.length})\n`;
-embedDescription += nichtReagiert.map(name => `– ${name}`).join('\n') || '–';
-embedDescription += '\n```';
-
-const embed = new EmbedBuilder()
-  .setColor('#2ecc71')
-  .setDescription(embedDescription)
-  .setFooter({ text: `Bitte tragt euch rechtzeitig ein! • heute um ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr` })
-  .setTimestamp();
-
+    const embed = new EmbedBuilder()
+      .setTitle('📋 **Aufstellung**')
+      .setDescription('🕗 Aufstellung 20 Uhr! Reagierpflicht!')
+      .addFields(
+        { name: `✅ Teilnahme (${teilnahme.length})`, value: teilnahme.join('\n') || '–', inline: true },
+        { name: `❌ Abgemeldet (${abgemeldet.length})`, value: abgemeldet.join('\n') || '–', inline: true },
+        { name: `⏰ Später anwesend (${spaeter.length})`, value: spaeter.join('\n') || '–', inline: true },
+        { name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`, value: nichtReagiert.join('\n') || '–' }
+      )
       .setColor('#2ecc71')
-      .setFooter({ text: `Bitte tragt euch rechtzeitig ein! • heute um ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr` })
+      .setFooter({ text: 'Bitte tragt euch rechtzeitig ein!' })
       .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
@@ -284,33 +267,72 @@ const embed = new EmbedBuilder()
           const oldMsg = await channel.messages.fetch(savedId);
           await oldMsg.edit({ embeds: [embed], components: [row] });
           return;
-        } catch {
-          // Alte Nachricht nicht gefunden, neu senden
+        } catch (e) {
+          console.log('⚠️ Vorherige Nachricht nicht gefunden.');
         }
       }
     }
 
-    const newMsg = await channel.send({ content: '', embeds: [embed], components: [row] });
+    const newMsg = await channel.send({ content: '📋 **Bitte Status wählen:**', components: [row], embeds: [embed] });
+    lastEmbedMessageId = newMsg.id;
     saveLastMessageId(newMsg.id);
   } catch (error) {
     console.error('❌ Fehler beim Senden der Tabelle:', error);
   }
 }
 
-
-
 async function resetSheetValues() {
   try {
     const spreadsheetId = process.env.SHEET_ID;
-    await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'Status!B2:C' });
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
+    const rows = response.data.values || [];
+
+    const updates = rows.map(row => {
+      return row[1] === 'Langzeitabmeldung' ? ['Langzeitabmeldung', row[2] || ''] : ['', ''];
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: 'Status!B2:C',
+      valueInputOption: 'RAW',
+      requestBody: { values: updates }
+    });
   } catch (error) {
-    console.error('❌ Fehler beim Zurücksetzen:', error);
+    console.error('❌ Fehler beim Zurücksetzen der Tabelle:', error);
   }
 }
 
 async function sendErinnerung(channel) {
-  await channel.send('🔔 **Erinnerung:** Bitte tragt bis 20 Uhr euren Status ein!');
+  try {
+    const spreadsheetId = process.env.SHEET_ID;
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
+    const rows = response.data.values || [];
+
+    const teilnehmerNamen = rows.filter(row => row[1] === 'Teilnahme').map(row => row[0]);
+    const guild = channel.guild;
+    const mentions = [];
+
+    for (const name of teilnehmerNamen) {
+      const member = guild.members.cache.find(m => m.displayName === name || m.user.username === name);
+      if (member) mentions.push(`<@${member.id}>`);
+    }
+
+    if (mentions.length > 0) {
+      await channel.send(`🔔 **Erinnerung:** Aufstellung in 15 Minuten!\n${mentions.join(', ')}`);
+    } else {
+      await channel.send('ℹ️ Keine gültigen Teilnehmer zum Erinnern gefunden.');
+    }
+  } catch (err) {
+    console.error('❌ Fehler bei der Erinnerung:', err);
+  }
 }
 
-keep_alive();
+const app = express();
+app.get('/', (req, res) => {
+  res.send('✅ Bot läuft!');
+});
+app.listen(3000, () => {
+  console.log('🌐 Webserver läuft auf Port 3000');
+});
+
 client.login(process.env.DISCORD_TOKEN);
