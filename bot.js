@@ -61,6 +61,8 @@ const commands = [
 client.once('ready', async () => {
   console.log(`✅ Bot ist online als: ${client.user.tag}`);
 
+  await syncMembersWithSheet(); // Mitglieder mit Rolle 'Member' in Google Sheet eintragen
+
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
@@ -328,3 +330,30 @@ app.listen(3000, () => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+async function syncMembersWithSheet() {
+  try {
+    const channel = await client.channels.fetch(process.env.LINEUP_CHANNEL_ID);
+    const guild = channel.guild;
+
+    await guild.members.fetch(); // Lade alle Mitglieder vollständig
+
+    const memberNames = guild.members.cache
+      .filter(m => m.roles.cache.some(role => role.name === 'Member') && !m.user.bot)
+      .map(m => m.displayName || m.user.username)
+      .sort((a, b) => a.localeCompare(b));
+
+    const values = memberNames.map(name => [name]);
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.SHEET_ID,
+      range: 'Status!A2:A',
+      valueInputOption: 'RAW',
+      requestBody: { values }
+    });
+
+    console.log(`✅ ${values.length} Member in Google Sheets eingetragen.`);
+  } catch (error) {
+    console.error('❌ Fehler beim Synchronisieren:', error);
+  }
+}
