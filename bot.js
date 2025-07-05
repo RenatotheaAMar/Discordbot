@@ -230,30 +230,42 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
       const [name, status, datum] = row;
       if (!name) continue;
 
-      if (status === 'Teilnahme') teilnahme.push(name);
-      else if (status === 'Abgemeldet') abgemeldet.push(name);
-      else if (status === 'Kommt später') spaeter.push(name);
-      else if (status === 'Langzeitabmeldung') langzeit.push(`${name} (bis ${datum})`);
-
-      if (status && status !== 'Langzeitabmeldung') reagiert.add(name);
+      switch (status) {
+        case 'Teilnahme':
+          teilnahme.push(name);
+          reagiert.add(name);
+          break;
+        case 'Abgemeldet':
+          abgemeldet.push(name);
+          reagiert.add(name);
+          break;
+        case 'Kommt später':
+          spaeter.push(name);
+          reagiert.add(name);
+          break;
+        case 'Langzeitabmeldung':
+          langzeit.push(`${name} (${datum || 'kein Datum'})`);
+          break;
+        default:
+          // keine Reaktion, wird unten gelistet
+          break;
+      }
     }
 
-    const alleNamen = rows.map(r => r[0]).filter(n => n);
-    const nichtReagiert = alleNamen.filter(name => !reagiert.has(name) && !langzeit.some(e => e.startsWith(name)));
-
-    let embedDescription = '```md\n📋 Aufstellung für heute:\n\n';
-    embedDescription += `✅ Teilnahme (${teilnahme.length})\n${teilnahme.map(n => `– ${n}`).join('\n') || '–'}\n\n`;
-    embedDescription += `❌ Abgemeldet (${abgemeldet.length})\n${abgemeldet.map(n => `– ${n}`).join('\n') || '–'}\n\n`;
-    embedDescription += `⏰ Kommt später (${spaeter.length})\n${spaeter.map(n => `– ${n}`).join('\n') || '–'}\n\n`;
-    embedDescription += `⚠️ Noch nicht reagiert (${nichtReagiert.length})\n${nichtReagiert.map(n => `– ${n}`).join('\n') || '–'}\n`;
-    if (langzeit.length > 0) {
-      embedDescription += `\n📆 Langzeitabmeldungen\n${langzeit.map(n => `– ${n}`).join('\n')}`;
-    }
-    embedDescription += '\n```';
+    const alleNamen = rows.filter(r => r[0]).map(r => r[0]);
+    const nichtReagiert = alleNamen.filter(name => !reagiert.has(name) && !langzeit.some(l => l.startsWith(name)));
 
     const embed = new EmbedBuilder()
-      .setColor('#2ecc71')
-      .setDescription(embedDescription)
+      .setTitle('📋 Bitte Status wählen:')
+      .setDescription('🕗 **Aufstellung 20 Uhr! Reagierpflicht!**')
+      .addFields(
+        { name: `✅ Teilnahme (${teilnahme.length})`, value: teilnahme.length ? `• ${teilnahme.join('\n• ')}` : '–', inline: false },
+        { name: `❌ Abgemeldet (${abgemeldet.length})`, value: abgemeldet.length ? `• ${abgemeldet.join('\n• ')}` : '–', inline: false },
+        { name: `⏰ Kommt später (${spaeter.length})`, value: spaeter.length ? `• ${spaeter.join('\n• ')}` : '–', inline: false },
+        { name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`, value: nichtReagiert.length ? `• ${nichtReagiert.join('\n• ')}` : '–', inline: false },
+        { name: `📆 Langzeitabmeldungen (${langzeit.length})`, value: langzeit.length ? `• ${langzeit.join('\n• ')}` : '–', inline: false }
+      )
+      .setColor('#00b0f4')
       .setFooter({ text: 'Bitte tragt euch rechtzeitig ein!' })
       .setTimestamp();
 
@@ -261,7 +273,7 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
       new ButtonBuilder().setCustomId('Teilnahme').setLabel('🟢 Teilnahme').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('Abgemeldet').setLabel('❌ Abgemeldet').setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId('Kommt später').setLabel('⏰ Später').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('Langzeit').setLabel('📆 Langzeit-Abmeldung').setStyle(ButtonStyle.Primary)
+      new ButtonBuilder().setCustomId('Langzeit').setLabel('📆 Langzeit').setStyle(ButtonStyle.Primary)
     );
 
     if (!forceNew) {
@@ -277,13 +289,13 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
       }
     }
 
-    const newMsg = await channel.send({ content: '📋 **Bitte Status wählen:**', components: [row], embeds: [embed] });
-    lastEmbedMessageId = newMsg.id;
+    const newMsg = await channel.send({ embeds: [embed], components: [row] });
     saveLastMessageId(newMsg.id);
   } catch (error) {
     console.error('❌ Fehler beim Senden der Tabelle:', error);
   }
 }
+
 
 async function resetSheetValues() {
   try {
