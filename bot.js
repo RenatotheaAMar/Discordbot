@@ -218,7 +218,10 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
     const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
     const rows = response.data.values || [];
 
-    const teilnahme = [], abgemeldet = [], spaeter = [], reagiert = new Set();
+    const teilnahme = [];
+    const abgemeldet = [];
+    const spaeter = [];
+    const reagiert = new Set();
 
     for (const row of rows) {
       const [name, status, langzeit] = row;
@@ -234,33 +237,38 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
     const alleNamen = rows.filter(r => r[1] !== 'Langzeitabmeldung').map(r => r[0]).filter(n => n);
     const nichtReagiert = alleNamen.filter(name => !reagiert.has(name));
 
-    // Sortieren für bessere Übersicht
     teilnahme.sort((a,b) => a.localeCompare(b));
     abgemeldet.sort((a,b) => a.localeCompare(b));
     spaeter.sort((a,b) => a.localeCompare(b));
     nichtReagiert.sort((a,b) => a.localeCompare(b));
 
-    // Helfer für Anzeige, max 25 Einträge pro Feld (Discord Limit)
-    function formatList(list) {
-      if (list.length === 0) return '–';
-      if (list.length > 25) {
-        return list.slice(0, 25).join('\n') + `\n...und ${list.length - 25} weitere`;
-      }
-      return list.join('\n');
-    }
+   let embedDescription = '```md\n📋 Bitte Status wählen:\n\n';
 
-    const embed = new EmbedBuilder()
-      .setTitle('📋 **Aufstellung für heute (20 Uhr)**')
-      .setDescription('Bitte rechtzeitig reagieren! ⏰')
+embedDescription += `✅ Teilnahme (${teilnahme.length})\n`;
+embedDescription += teilnahme.map(name => `– ${name}`).join('\n') || '–';
+embedDescription += '\n\n';
+
+embedDescription += `❌ Abgemeldet (${abgemeldet.length})\n`;
+embedDescription += abgemeldet.map(name => `– ${name}`).join('\n') || '–';
+embedDescription += '\n\n';
+
+embedDescription += `⏰ Später anwesend (${spaeter.length})\n`;
+embedDescription += spaeter.map(name => `– ${name}`).join('\n') || '–';
+embedDescription += '\n\n';
+
+embedDescription += `⚠️ Noch nicht reagiert (${nichtReagiert.length})\n`;
+embedDescription += nichtReagiert.map(name => `– ${name}`).join('\n') || '–';
+embedDescription += '\n```';
+
+const embed = new EmbedBuilder()
+  .setColor('#2ecc71')
+  .setDescription(embedDescription)
+  .setFooter({ text: `Bitte tragt euch rechtzeitig ein! • heute um ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr` })
+  .setTimestamp();
+
       .setColor('#2ecc71')
-      .setFooter({ text: 'Du kannst deinen Status jederzeit ändern' })
-      .setTimestamp()
-      .addFields(
-        { name: `✅ Teilnahme (${teilnahme.length})`, value: formatList(teilnahme), inline: true },
-        { name: `❌ Abgemeldet (${abgemeldet.length})`, value: formatList(abgemeldet), inline: true },
-        { name: `⏰ Später anwesend (${spaeter.length})`, value: formatList(spaeter), inline: true },
-        { name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`, value: formatList(nichtReagiert), inline: false }
-      );
+      .setFooter({ text: `Bitte tragt euch rechtzeitig ein! • heute um ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr` })
+      .setTimestamp();
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('Teilnahme').setLabel('🟢 Teilnahme').setStyle(ButtonStyle.Success),
@@ -276,19 +284,20 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
           const oldMsg = await channel.messages.fetch(savedId);
           await oldMsg.edit({ embeds: [embed], components: [row] });
           return;
-        } catch (e) {
-          console.log('⚠️ Vorherige Nachricht nicht gefunden.');
+        } catch {
+          // Alte Nachricht nicht gefunden, neu senden
         }
       }
     }
 
-    const newMsg = await channel.send({ content: '📋 **Bitte wähle deinen Status:**', embeds: [embed], components: [row] });
-    lastEmbedMessageId = newMsg.id;
+    const newMsg = await channel.send({ content: '', embeds: [embed], components: [row] });
     saveLastMessageId(newMsg.id);
   } catch (error) {
     console.error('❌ Fehler beim Senden der Tabelle:', error);
   }
 }
+
+
 
 async function resetSheetValues() {
   try {
