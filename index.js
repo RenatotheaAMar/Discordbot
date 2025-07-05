@@ -258,13 +258,16 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
     const embed = new EmbedBuilder()
       .setTitle('📋 Bitte Status wählen:')
       .setDescription('🕗 **Aufstellung 20 Uhr! Reagierpflicht!**')
-      .addFields(
-        { name: `✅ Teilnahme (${teilnahme.length})`, value: teilnahme.length ? `• ${teilnahme.join('\n• ')}` : '–', inline: false },
-        { name: `❌ Abgemeldet (${abgemeldet.length})`, value: abgemeldet.length ? `• ${abgemeldet.join('\n• ')}` : '–', inline: false },
-        { name: `⏰ Kommt später (${spaeter.length})`, value: spaeter.length ? `• ${spaeter.join('\n• ')}` : '–', inline: false },
-        { name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`, value: nichtReagiert.length ? `• ${nichtReagiert.join('\n• ')}` : '–', inline: false },
-        { name: `📆 Langzeitabmeldungen (${langzeit.length})`, value: langzeit.length ? `• ${langzeit.join('\n• ')}` : '–', inline: false }
-      )
+
+.addFields(
+  { name: `✅ Teilnahme (${teilnahme.length})`, value: teilnahme.length ? `• ${teilnahme.join('\n• ')}` : '–', inline: true },
+  { name: `❌ Abgemeldet (${abgemeldet.length})`, value: abgemeldet.length ? `• ${abgemeldet.join('\n• ')}` : '–', inline: true },
+  { name: `⏰ Kommt später (${spaeter.length})`, value: spaeter.length ? `• ${spaeter.join('\n• ')}` : '–', inline: true },
+
+  { name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`, value: nichtReagiert.length ? `• ${nichtReagiert.join('\n• ')}` : '–', inline: true },
+  { name: `📆 Langzeitabmeldungen (${langzeit.length})`, value: langzeit.length ? `• ${langzeit.join('\n• ')}` : '–', inline: true }
+)
+
       .setColor('#00b0f4')
       .setFooter({ text: 'Bitte tragt euch rechtzeitig ein!' })
       .setTimestamp();
