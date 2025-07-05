@@ -1,8 +1,4 @@
-// ====================
-// BOT SETUP & IMPORTS
-// ====================
-
-const keep_alive = require('./keep_alive.js'); // Falls du das als Keep-Alive nutzt
+const keep_alive = require('./keep_alive.js');  
 const {
   Client,
   GatewayIntentBits,
@@ -18,26 +14,18 @@ const {
   Routes,
   SlashCommandBuilder
 } = require('discord.js');
-
 const schedule = require('node-schedule');
 const { google } = require('googleapis');
 const express = require('express');
 const fs = require('fs');
 require('dotenv').config();
 
-// ====================
-// GOOGLE SHEETS SETUP
-// ====================
-
+// 🔐 Google Sheets Setup
 const auth = new google.auth.GoogleAuth({
   keyFile: './google-service-account.json',
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
 const sheets = google.sheets({ version: 'v4', auth });
-
-// ====================
-// DISCORD CLIENT SETUP
-// ====================
 
 const client = new Client({
   intents: [
@@ -48,161 +36,104 @@ const client = new Client({
   ]
 });
 
-// ====================
-// GLOBAL VARIABLES
-// ====================
-
-let lastEmbedMessageId = null; // Speichert die ID der zuletzt gesendeten Tabelle für Editierung
-
-// Datei zum Speichern der letzten Message-ID
-const LAST_MSG_FILE = './lastMessage.json';
-
-// ====================
-// HILFSFUNKTIONEN ZUM SPEICHERN/LADEN DER MESSAGE-ID
-// ====================
+let lastEmbedMessageId = null;
 
 function saveLastMessageId(id) {
-  try {
-    fs.writeFileSync(LAST_MSG_FILE, JSON.stringify({ id }));
-  } catch (e) {
-    console.error('❌ Fehler beim Speichern der Message-ID:', e);
-  }
+  fs.writeFileSync('./lastMessage.json', JSON.stringify({ id }));
 }
 
 function loadLastMessageId() {
   try {
-    if (!fs.existsSync(LAST_MSG_FILE)) return null;
-    const data = JSON.parse(fs.readFileSync(LAST_MSG_FILE));
+    const data = JSON.parse(fs.readFileSync('./lastMessage.json'));
     return data.id;
-  } catch (e) {
-    console.error('❌ Fehler beim Laden der Message-ID:', e);
+  } catch {
     return null;
   }
 }
 
-// ====================
-// SLASH COMMANDS DEFINIEREN
-// ====================
-
+// Slash Commands
 const commands = [
   new SlashCommandBuilder().setName('reset').setDescription('🧹 Reset Tabelle'),
   new SlashCommandBuilder().setName('tabelle').setDescription('📋 Zeige Tabelle erneut'),
   new SlashCommandBuilder().setName('erinnerung').setDescription('🔔 Sende Erinnerung')
 ].map(cmd => cmd.toJSON());
 
-// ====================
-// READY EVENT
-// ====================
-
 client.once('ready', async () => {
-  console.log(`✅ Bot ist online als: ${client.user.tag}`);
+  console.log(✅ Bot ist online als: ${client.user.tag});
 
-  // Mitglieder mit Rolle 'Member' in Google Sheet eintragen
-  await syncMembersWithSheet();
-
-  // Slash Commands beim Discord API registrieren
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
-  // Zeitgesteuerte Aufgabe um 7 Uhr - Neue Tabelle senden (immer neue Nachricht)
+  // 📆 Zeitgesteuerte Aufgaben
   schedule.scheduleJob({ hour: 7, minute: 0, tz: 'Europe/Berlin' }, async () => {
     const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
-    if (ch) {
-      await sendTeilnehmerTabelle(ch, true); // forceNew = true -> neue Nachricht
-    }
+    if (ch) await sendTeilnehmerTabelle(ch, true);
   });
 
-  // Erinnerung um 19:45
   schedule.scheduleJob({ hour: 19, minute: 45, tz: 'Europe/Berlin' }, async () => {
     const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
-    if (ch) {
-      await sendErinnerung(ch);
-    }
+    if (ch) await sendErinnerung(ch);
   });
 
-  // Direkt beim Start eine Tabelle senden (hier auch als neue Nachricht)
   const initCh = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
-  if (initCh) {
-    await sendTeilnehmerTabelle(initCh, true);
-  }
+  if (initCh) sendTeilnehmerTabelle(initCh, true);
 });
 
-// ====================
-// INTERACTION CREATE EVENT (Slash Commands, Buttons, Modals)
-// ====================
-
 client.on(Events.InteractionCreate, async interaction => {
-
   if (interaction.isCommand()) {
-    // Slash Commands ausführen
     const { commandName } = interaction;
 
     if (commandName === 'reset') {
       await interaction.reply({ content: '🧹 Zurücksetzen...', ephemeral: true });
       await resetSheetValues();
       await sendTeilnehmerTabelle(interaction.channel);
-    }
-    else if (commandName === 'tabelle') {
+    } else if (commandName === 'tabelle') {
       await interaction.reply({ content: '📋 Sende Tabelle...', ephemeral: true });
       await sendTeilnehmerTabelle(interaction.channel);
-    }
-    else if (commandName === 'erinnerung') {
+    } else if (commandName === 'erinnerung') {
       await interaction.reply({ content: '🔔 Erinnerung wird gesendet...', ephemeral: true });
       await sendErinnerung(interaction.channel);
     }
-
     return;
   }
 
   if (interaction.isButton()) {
-    // Button-Interaktion: Reaktion der Mitglieder
-
     const userName = interaction.member?.displayName || interaction.user.username;
     const auswahl = interaction.customId;
 
     if (auswahl === 'Langzeit') {
       if (interaction.replied || interaction.deferred) return;
 
-      const modal = new ModalBuilder()
-        .setCustomId('langzeitModal')
-        .setTitle('Langzeit-Abmeldung');
-
+      const modal = new ModalBuilder().setCustomId('langzeitModal').setTitle('Langzeit-Abmeldung');
       const dateInput = new TextInputBuilder()
         .setCustomId('langzeitDatum')
         .setLabel('Bis wann bist du abgemeldet? (TT.MM.JJJJ)')
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
-
       const reasonInput = new TextInputBuilder()
         .setCustomId('langzeitGrund')
         .setLabel('Grund deiner Abmeldung')
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true);
-
       modal.addComponents(
         new ActionRowBuilder().addComponents(dateInput),
         new ActionRowBuilder().addComponents(reasonInput)
       );
-
       await interaction.showModal(modal);
       return;
     }
 
-    // Update der Google Sheet Werte bei Button-Klick
     try {
       const spreadsheetId = process.env.SHEET_ID;
-
-      // Werte abrufen
       const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
       const rows = response.data.values || [];
-
       let updated = false;
 
       for (let i = 0; i < rows.length; i++) {
         if (rows[i][0] === userName) {
           await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `B${i + 2}`,
+            range: B${i + 2},
             valueInputOption: 'RAW',
             requestBody: { values: [[auswahl]] }
           });
@@ -212,7 +143,6 @@ client.on(Events.InteractionCreate, async interaction => {
       }
 
       if (!updated) {
-        // Neuer Eintrag
         await sheets.spreadsheets.values.append({
           spreadsheetId,
           range: 'Status!A:C',
@@ -222,22 +152,15 @@ client.on(Events.InteractionCreate, async interaction => {
       }
 
       await interaction.deferUpdate();
-
-      // Tabelle neu senden/aktualisieren - aber hier KEINE neue Nachricht, nur editieren
       const msgChannel = await client.channels.fetch(process.env.LINEUP_CHANNEL_ID);
-      if (msgChannel) {
-        await sendTeilnehmerTabelle(msgChannel, false); // forceNew = false -> editieren
-      }
+      if (msgChannel) await sendTeilnehmerTabelle(msgChannel);
     } catch (error) {
-      console.error('❌ Fehler beim Verarbeiten der Reaktion:', error);
+      console.error('❌ Fehler:', error);
     }
-
     return;
   }
 
   if (interaction.isModalSubmit() && interaction.customId === 'langzeitModal') {
-    // Modal mit Langzeit-Abmeldung wurde abgeschickt
-
     const userName = interaction.member?.displayName || interaction.user.username;
     const datumInput = interaction.fields.getTextInputValue('langzeitDatum');
     const grund = interaction.fields.getTextInputValue('langzeitGrund');
@@ -246,14 +169,13 @@ client.on(Events.InteractionCreate, async interaction => {
       const spreadsheetId = process.env.SHEET_ID;
       const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
       const rows = response.data.values || [];
-
       let updated = false;
 
       for (let i = 0; i < rows.length; i++) {
         if (rows[i][0] === userName) {
           await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: `B${i + 2}:C${i + 2}`,
+            range: B${i + 2}:C${i + 2},
             valueInputOption: 'RAW',
             requestBody: { values: [['Langzeitabmeldung', datumInput]] }
           });
@@ -263,7 +185,6 @@ client.on(Events.InteractionCreate, async interaction => {
       }
 
       if (!updated) {
-        // Neuer Eintrag
         await sheets.spreadsheets.values.append({
           spreadsheetId,
           range: 'Status!A:C',
@@ -272,71 +193,22 @@ client.on(Events.InteractionCreate, async interaction => {
         });
       }
 
-      await interaction.reply({ content: '✅ Deine Langzeit-Abmeldung wurde gespeichert.', ephemeral: true });
-
-      // Tabelle aktualisieren, ohne neue Nachricht zu senden
-      const ch = await client.channels.fetch(process.env.LINEUP_CHANNEL_ID);
-      if (ch) {
-        await sendTeilnehmerTabelle(ch, false);
+      const excuseChannel = client.channels.cache.get(process.env.EXCUSE_CHANNEL_ID);
+      if (excuseChannel) {
+        await excuseChannel.send(📌 **Langzeit-Abmeldung**\n👤 **${userName}**\n📅 Bis: **${datumInput}**\n📝 Grund: ${grund});
       }
-    } catch (e) {
-      console.error('❌ Fehler bei Langzeit-Abmeldung:', e);
-      await interaction.reply({ content: '❌ Fehler beim Speichern deiner Abmeldung.', ephemeral: true });
-    }
 
+      await interaction.reply({
+        content: ✅ Deine Abmeldung wurde erfasst.,
+        ephemeral: true
+      });
+    } catch (err) {
+      console.error('❌ Fehler:', err);
+      await interaction.reply({ content: '⚠️ Fehler beim Eintragen.', ephemeral: true });
+    }
     return;
   }
 });
-
-// ====================
-// FUNKTION: Mitgieder synchronisieren (Rollen-Check und Sheet-Eintrag)
-// ====================
-
-async function syncMembersWithSheet() {
-  try {
-    const guild = client.guilds.cache.get(process.env.GUILD_ID);
-    if (!guild) {
-      console.warn('⚠️ Guild nicht gefunden!');
-      return;
-    }
-
-    const role = guild.roles.cache.find(r => r.name === 'Member');
-    if (!role) {
-      console.warn('⚠️ Rolle "Member" nicht gefunden!');
-      return;
-    }
-
-    const members = await guild.members.fetch();
-    const memberNames = members.filter(m => m.roles.cache.has(role.id)).map(m => m.displayName);
-
-    // Sheet lesen, um bestehende Einträge zu holen
-    const spreadsheetId = process.env.SHEET_ID;
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:A' });
-    const sheetNames = (response.data.values || []).flat();
-
-    // Neue Member, die noch nicht im Sheet sind
-    const newMembers = memberNames.filter(name => !sheetNames.includes(name));
-
-    // Neue Mitglieder eintragen
-    if (newMembers.length > 0) {
-      const values = newMembers.map(name => [name, '', '']);
-      await sheets.spreadsheets.values.append({
-        spreadsheetId,
-        range: 'Status!A:C',
-        valueInputOption: 'RAW',
-        requestBody: { values }
-      });
-      console.log(`✅ Neue Mitglieder hinzugefügt: ${newMembers.join(', ')}`);
-    }
-  } catch (e) {
-    console.error('❌ Fehler bei Member-Sync:', e);
-  }
-}
-
-// ====================
-// FUNKTION: Tabelle senden / aktualisieren
-// forceNew: Wenn true, immer neue Nachricht senden, sonst vorhandene editieren
-// ====================
 
 async function sendTeilnehmerTabelle(channel, forceNew = false) {
   try {
@@ -344,101 +216,115 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
     const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
     const rows = response.data.values || [];
 
-    // Sortieren alphabetisch nach Name
-    rows.sort((a, b) => a[0].localeCompare(b[0]));
+    const teilnahme = [], abgemeldet = [], spaeter = [], reagiert = new Set();
 
-    // Teilnehmer-Tabelle als Text bauen
-    let tableText = 'Teilnehmerliste:\n\n';
-    tableText += 'Name | Status | Datum\n';
-    tableText += '---------------------------\n';
     for (const row of rows) {
-      const name = row[0] || '-';
-      const status = row[1] || '-';
-      const datum = row[2] || '-';
-      tableText += `${name} | ${status} | ${datum}\n`;
+      const [name, status, langzeit] = row;
+      if (!name || status === 'Langzeitabmeldung') continue;
+
+      if (status === 'Teilnahme') teilnahme.push(name);
+      else if (status === 'Abgemeldet') abgemeldet.push(name);
+      else if (status === 'Kommt später') spaeter.push(name);
+
+      if (status) reagiert.add(name);
     }
 
-    // Buttons für Reaktionen
-    const buttons = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder().setCustomId('Anwesend').setLabel('Anwesend').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('Abwesend').setLabel('Abwesend').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('Langzeit').setLabel('Langzeit').setStyle(ButtonStyle.Secondary)
-      );
+    const alleNamen = rows.filter(r => r[1] !== 'Langzeitabmeldung').map(r => r[0]).filter(n => n);
+    const nichtReagiert = alleNamen.filter(name => !reagiert.has(name));
 
-    if (forceNew || !lastEmbedMessageId) {
-      // Neue Nachricht senden
-      const message = await channel.send({ content: tableText, components: [buttons] });
-      lastEmbedMessageId = message.id;
-      saveLastMessageId(lastEmbedMessageId);
-    } else {
-      // Vorhandene Nachricht editieren
-      try {
-        const message = await channel.messages.fetch(lastEmbedMessageId);
-        await message.edit({ content: tableText, components: [buttons] });
-      } catch (e) {
-        // Wenn Nachricht nicht gefunden, neue senden
-        const message = await channel.send({ content: tableText, components: [buttons] });
-        lastEmbedMessageId = message.id;
-        saveLastMessageId(lastEmbedMessageId);
+    const embed = new EmbedBuilder()
+      .setTitle('📋 **Aufstellung**')
+      .setDescription('🕗 Aufstellung 20 Uhr! Reagierpflicht!')
+      .addFields(
+        { name: ✅ Teilnahme (${teilnahme.length}), value: teilnahme.join('\n') || '–', inline: true },
+        { name: ❌ Abgemeldet (${abgemeldet.length}), value: abgemeldet.join('\n') || '–', inline: true },
+        { name: ⏰ Später anwesend (${spaeter.length}), value: spaeter.join('\n') || '–', inline: true },
+        { name: ⚠️ Noch nicht reagiert (${nichtReagiert.length}), value: nichtReagiert.join('\n') || '–' }
+      )
+      .setColor('#2ecc71')
+      .setFooter({ text: 'Bitte tragt euch rechtzeitig ein!' })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('Teilnahme').setLabel('🟢 Teilnahme').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('Abgemeldet').setLabel('❌ Abgemeldet').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('Kommt später').setLabel('⏰ Später anwesend').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('Langzeit').setLabel('📆 Langzeit-Abmeldung').setStyle(ButtonStyle.Primary)
+    );
+
+    if (!forceNew) {
+      const savedId = loadLastMessageId();
+      if (savedId) {
+        try {
+          const oldMsg = await channel.messages.fetch(savedId);
+          await oldMsg.edit({ embeds: [embed], components: [row] });
+          return;
+        } catch (e) {
+          console.log('⚠️ Vorherige Nachricht nicht gefunden.');
+        }
       }
     }
-  } catch (e) {
-    console.error('❌ Fehler beim Senden der Teilnehmer-Tabelle:', e);
+
+    const newMsg = await channel.send({ content: '📋 **Bitte Status wählen:**', components: [row], embeds: [embed] });
+    lastEmbedMessageId = newMsg.id;
+    saveLastMessageId(newMsg.id);
+  } catch (error) {
+    console.error('❌ Fehler beim Senden der Tabelle:', error);
   }
 }
-
-// ====================
-// FUNKTION: Tabelle Werte auf Standard zurücksetzen (Reset)
-// ====================
 
 async function resetSheetValues() {
   try {
     const spreadsheetId = process.env.SHEET_ID;
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
+    const rows = response.data.values || [];
 
-    // Lösche Werte in Status!B2:C (Status und Datum)
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId,
-      range: 'Status!B2:C'
+    const updates = rows.map(row => {
+      return row[1] === 'Langzeitabmeldung' ? ['Langzeitabmeldung', row[2] || ''] : ['', ''];
     });
 
-    console.log('✅ Tabelle zurückgesetzt.');
-  } catch (e) {
-    console.error('❌ Fehler beim Zurücksetzen der Tabelle:', e);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: 'Status!B2:C',
+      valueInputOption: 'RAW',
+      requestBody: { values: updates }
+    });
+  } catch (error) {
+    console.error('❌ Fehler beim Zurücksetzen der Tabelle:', error);
   }
 }
-
-// ====================
-// FUNKTION: Erinnerung senden
-// ====================
 
 async function sendErinnerung(channel) {
   try {
-    const reminderText = '🔔 **Erinnerung:** Bitte denkt daran, euch für morgen anzumelden oder euren Status zu aktualisieren!';
-    await channel.send(reminderText);
-  } catch (e) {
-    console.error('❌ Fehler beim Senden der Erinnerung:', e);
+    const spreadsheetId = process.env.SHEET_ID;
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
+    const rows = response.data.values || [];
+
+    const teilnehmerNamen = rows.filter(row => row[1] === 'Teilnahme').map(row => row[0]);
+    const guild = channel.guild;
+    const mentions = [];
+
+    for (const name of teilnehmerNamen) {
+      const member = guild.members.cache.find(m => m.displayName === name || m.user.username === name);
+      if (member) mentions.push(<@${member.id}>);
+    }
+
+    if (mentions.length > 0) {
+      await channel.send(🔔 **Erinnerung:** Aufstellung in 15 Minuten!\n${mentions.join(', ')});
+    } else {
+      await channel.send('ℹ️ Keine gültigen Teilnehmer zum Erinnern gefunden.');
+    }
+  } catch (err) {
+    console.error('❌ Fehler bei der Erinnerung:', err);
   }
 }
 
-// ====================
-// EXPRESS WEB SERVER (für Keep-Alive)
-// ====================
-
 const app = express();
-
 app.get('/', (req, res) => {
-  res.send('Bot läuft!');
+  res.send('✅ Bot läuft!');
 });
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🌐 Express Server läuft auf Port ${PORT}`);
+app.listen(3000, () => {
+  console.log('🌐 Webserver läuft auf Port 3000');
 });
-
-// ====================
-// BOT LOGIN
-// ====================
 
 client.login(process.env.DISCORD_TOKEN);
-
