@@ -59,7 +59,7 @@ const commands = [
 ].map(cmd => cmd.toJSON());
 
 client.once('ready', async () => {
-  console.log(✅ Bot ist online als: ${client.user.tag});
+  console.log(`✅ Bot ist online als: ${client.user.tag}`);
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
@@ -133,7 +133,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (rows[i][0] === userName) {
           await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: B${i + 2},
+            range: `B${i + 2}`,
             valueInputOption: 'RAW',
             requestBody: { values: [[auswahl]] }
           });
@@ -175,7 +175,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (rows[i][0] === userName) {
           await sheets.spreadsheets.values.update({
             spreadsheetId,
-            range: B${i + 2}:C${i + 2},
+            range: `B${i + 2}:C${i + 2}`,
             valueInputOption: 'RAW',
             requestBody: { values: [['Langzeitabmeldung', datumInput]] }
           });
@@ -195,11 +195,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
       const excuseChannel = client.channels.cache.get(process.env.EXCUSE_CHANNEL_ID);
       if (excuseChannel) {
-        await excuseChannel.send(📌 **Langzeit-Abmeldung**\n👤 **${userName}**\n📅 Bis: **${datumInput}**\n📝 Grund: ${grund});
+        await excuseChannel.send(`📌 **Langzeit-Abmeldung**\n👤 **${userName}**\n📅 Bis: **${datumInput}**\n📝 Grund: ${grund}`);
       }
 
       await interaction.reply({
-        content: ✅ Deine Abmeldung wurde erfasst.,
+        content: '✅ Deine Abmeldung wurde erfasst.',
         ephemeral: true
       });
     } catch (err) {
@@ -209,6 +209,8 @@ client.on(Events.InteractionCreate, async interaction => {
     return;
   }
 });
+
+// --------------- Neue verbesserte Tabelle ---------------
 
 async function sendTeilnehmerTabelle(channel, forceNew = false) {
   try {
@@ -232,18 +234,33 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
     const alleNamen = rows.filter(r => r[1] !== 'Langzeitabmeldung').map(r => r[0]).filter(n => n);
     const nichtReagiert = alleNamen.filter(name => !reagiert.has(name));
 
+    // Sortieren für bessere Übersicht
+    teilnahme.sort((a,b) => a.localeCompare(b));
+    abgemeldet.sort((a,b) => a.localeCompare(b));
+    spaeter.sort((a,b) => a.localeCompare(b));
+    nichtReagiert.sort((a,b) => a.localeCompare(b));
+
+    // Helfer für Anzeige, max 25 Einträge pro Feld (Discord Limit)
+    function formatList(list) {
+      if (list.length === 0) return '–';
+      if (list.length > 25) {
+        return list.slice(0, 25).join('\n') + `\n...und ${list.length - 25} weitere`;
+      }
+      return list.join('\n');
+    }
+
     const embed = new EmbedBuilder()
-      .setTitle('📋 **Aufstellung**')
-      .setDescription('🕗 Aufstellung 20 Uhr! Reagierpflicht!')
-      .addFields(
-        { name: ✅ Teilnahme (${teilnahme.length}), value: teilnahme.join('\n') || '–', inline: true },
-        { name: ❌ Abgemeldet (${abgemeldet.length}), value: abgemeldet.join('\n') || '–', inline: true },
-        { name: ⏰ Später anwesend (${spaeter.length}), value: spaeter.join('\n') || '–', inline: true },
-        { name: ⚠️ Noch nicht reagiert (${nichtReagiert.length}), value: nichtReagiert.join('\n') || '–' }
-      )
+      .setTitle('📋 **Aufstellung für heute (20 Uhr)**')
+      .setDescription('Bitte rechtzeitig reagieren! ⏰')
       .setColor('#2ecc71')
-      .setFooter({ text: 'Bitte tragt euch rechtzeitig ein!' })
-      .setTimestamp();
+      .setFooter({ text: 'Du kannst deinen Status jederzeit ändern' })
+      .setTimestamp()
+      .addFields(
+        { name: `✅ Teilnahme (${teilnahme.length})`, value: formatList(teilnahme), inline: true },
+        { name: `❌ Abgemeldet (${abgemeldet.length})`, value: formatList(abgemeldet), inline: true },
+        { name: `⏰ Später anwesend (${spaeter.length})`, value: formatList(spaeter), inline: true },
+        { name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`, value: formatList(nichtReagiert), inline: false }
+      );
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('Teilnahme').setLabel('🟢 Teilnahme').setStyle(ButtonStyle.Success),
@@ -265,7 +282,7 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
       }
     }
 
-    const newMsg = await channel.send({ content: '📋 **Bitte Status wählen:**', components: [row], embeds: [embed] });
+    const newMsg = await channel.send({ content: '📋 **Bitte wähle deinen Status:**', embeds: [embed], components: [row] });
     lastEmbedMessageId = newMsg.id;
     saveLastMessageId(newMsg.id);
   } catch (error) {
@@ -276,55 +293,15 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
 async function resetSheetValues() {
   try {
     const spreadsheetId = process.env.SHEET_ID;
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
-    const rows = response.data.values || [];
-
-    const updates = rows.map(row => {
-      return row[1] === 'Langzeitabmeldung' ? ['Langzeitabmeldung', row[2] || ''] : ['', ''];
-    });
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: 'Status!B2:C',
-      valueInputOption: 'RAW',
-      requestBody: { values: updates }
-    });
+    await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'Status!B2:C' });
   } catch (error) {
-    console.error('❌ Fehler beim Zurücksetzen der Tabelle:', error);
+    console.error('❌ Fehler beim Zurücksetzen:', error);
   }
 }
 
 async function sendErinnerung(channel) {
-  try {
-    const spreadsheetId = process.env.SHEET_ID;
-    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
-    const rows = response.data.values || [];
-
-    const teilnehmerNamen = rows.filter(row => row[1] === 'Teilnahme').map(row => row[0]);
-    const guild = channel.guild;
-    const mentions = [];
-
-    for (const name of teilnehmerNamen) {
-      const member = guild.members.cache.find(m => m.displayName === name || m.user.username === name);
-      if (member) mentions.push(<@${member.id}>);
-    }
-
-    if (mentions.length > 0) {
-      await channel.send(🔔 **Erinnerung:** Aufstellung in 15 Minuten!\n${mentions.join(', ')});
-    } else {
-      await channel.send('ℹ️ Keine gültigen Teilnehmer zum Erinnern gefunden.');
-    }
-  } catch (err) {
-    console.error('❌ Fehler bei der Erinnerung:', err);
-  }
+  await channel.send('🔔 **Erinnerung:** Bitte tragt bis 20 Uhr euren Status ein!');
 }
 
-const app = express();
-app.get('/', (req, res) => {
-  res.send('✅ Bot läuft!');
-});
-app.listen(3000, () => {
-  console.log('🌐 Webserver läuft auf Port 3000');
-});
-
+keep_alive();
 client.login(process.env.DISCORD_TOKEN);
