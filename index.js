@@ -18,7 +18,6 @@ const schedule = require('node-schedule');
 const { google } = require('googleapis');
 const express = require('express');
 const fs = require('fs');
-require('dotenv').config();
 
 // 🔐 Google Sheets Setup
 require('dotenv').config();
