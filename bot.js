@@ -16,21 +16,18 @@ const {
 } = require('discord.js');
 const schedule = require('node-schedule');
 const express = require('express');
+require('dotenv').config();
 const fs = require('fs');
 
 // 🔐 Google Sheets Setup
-require('dotenv').config();
 
 const { google } = require('googleapis');
-
 const auth = new google.auth.GoogleAuth({
   keyFile: './google-service-account.json',
-  scopes: ['https://www.googleapis.com/auth/spreadsheets']
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
-
-
-
 const sheets = google.sheets({ version: 'v4', auth });
+
 
 const client = new Client({
   intents: [
@@ -172,9 +169,11 @@ client.on(Events.InteractionCreate, async interaction => {
     const grund = interaction.fields.getTextInputValue('langzeitGrund');
 
     try {
-      const spreadsheetId = process.env.SHEET_ID;
-      const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: 'Status!A2:C' });
-      const rows = response.data.values || [];
+const spreadsheetId = process.env.SHEET_ID;
+const range = 'Status!A2:C';
+const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+const rows = response.data.values || [];
+
       let updated = false;
 
       for (let i = 0; i < rows.length; i++) {
@@ -191,12 +190,12 @@ client.on(Events.InteractionCreate, async interaction => {
       }
 
       if (!updated) {
-        await sheets.spreadsheets.values.append({
-          spreadsheetId,
-          range: 'Status!A:C',
-          valueInputOption: 'RAW',
-          requestBody: { values: [[userName, 'Langzeitabmeldung', datumInput]] }
-        });
+   await sheets.spreadsheets.values.update({
+  spreadsheetId,
+  range: 'Status!B2:C' + (updates.length + 1),
+  valueInputOption: 'RAW',
+  requestBody: { values: updates }
+});
       }
 
       const excuseChannel = client.channels.cache.get(process.env.EXCUSE_CHANNEL_ID);
