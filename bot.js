@@ -192,9 +192,9 @@ const rows = response.data.values || [];
       if (!updated) {
    await sheets.spreadsheets.values.update({
   spreadsheetId,
-  range: 'Status!B2:C' + (updates.length + 1),
+  range: 'Status!B2:C' + (update.length + 1),
   valueInputOption: 'RAW',
-  requestBody: { values: updates }
+  requestBody: { values: update }
 });
       }
 
