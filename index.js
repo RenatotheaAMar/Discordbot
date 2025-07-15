@@ -23,11 +23,11 @@ require('dotenv').config();
 
 const { google } = require('googleapis');
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.REDIRECT_URI
-);
+const auth = new google.auth.GoogleAuth({
+  keyFile: './google-service-account.json',
+  scopes: ['https://www.googleapis.com/auth/spreadsheets']
+});
+
 
 
 const sheets = google.sheets({ version: 'v4', auth });
