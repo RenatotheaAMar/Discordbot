@@ -22,9 +22,23 @@ require('dotenv').config();
 
 // 🔐 Google Sheets Setup
 const auth = new google.auth.GoogleAuth({
-  keyFile: './google-service-account.json',
+  credentials: {
+    "type": "service_account",
+    "project_id": "starlit-wharf-462923-c3",
+    // alle weiteren Felder deiner JSON, z.B.:
+    "private_key_id": "b8928ddd35e7ec36cc8c5559c3e4ab4fbadc9213",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANB ... \n-----END PRIVATE KEY-----\n",
+    "client_email": "discord-bot-service-account@starlit-wharf-462923-c3.iam.gserviceaccount.com",
+    "client_id": "103353254714644224140",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/discord-bot-service-account%40starlit-wharf-462923-c3.iam.gserviceaccount.com",
+    "universe_domain": "googleapis.com"
+  },  // <-- Komma hier wichtig!
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
+
 const sheets = google.sheets({ version: 'v4', auth });
 
 const client = new Client({
