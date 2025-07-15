@@ -20,7 +20,7 @@ const express = require('express');
 const fs = require('fs');
 require('dotenv').config();
 
-// 🔐 Google  Sheets Setup
+// 🔐 Google Sheets Setup
 const auth = new google.auth.GoogleAuth({
   keyFile: './google-service-account.json',
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
