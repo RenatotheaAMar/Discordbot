@@ -285,7 +285,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
       // Tabelle im LINEUP_CHANNEL_ID aktualisieren
       const lineupChannel = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
-      if (lineupChannel) sendTeilnehmerTabelle(lineupChannel, true);
+      if (lineupChannel) sendTeilnehmerTabelle(lineupChannel, false);
 
       return;
     }
