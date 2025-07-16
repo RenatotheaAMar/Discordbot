@@ -243,24 +243,37 @@ client.on(Events.InteractionCreate, async interaction => {
     return;
   }
 
-  if (interaction.isModalSubmit()) {
-    if (interaction.customId === 'langzeitModal') {
-      const userName = interaction.member?.displayName || interaction.user.username;
-      const datum = interaction.fields.getTextInputValue('langzeitDatum');
-      const grund = interaction.fields.getTextInputValue('langzeitGrund') || '';
+if (interaction.isModalSubmit() && interaction.customId === 'langzeitModal') {
+  const userName = interaction.member?.displayName || interaction.user.username;
+  const datumInput = interaction.fields.getTextInputValue('langzeitDatum');
+  const grund = interaction.fields.getTextInputValue('langzeitGrund');
 
-      memberStatus.set(userName, { status: 'Langzeitabmeldung', datum: datum });
+  try {
+    memberStatus.set(userName, { status: 'Langzeitabmeldung', datum: datumInput });
 
-      await interaction.reply({ content: `Langzeit-Abmeldung eingetragen bis ${datum}.`, ephemeral: true });
-
-      // Langzeitmeldung im Channel posten
-      const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
-      if (ch) {
-        ch.send(`⚠️ **Langzeit-Abmeldung:** ${userName} ist bis ${datum} abgemeldet. ${grund}`);
-        await sendTeilnehmerTabelle(ch);
-      }
+    // In den Langzeit-Abmelde-Channel posten
+    const excuseChannel = client.channels.cache.get(process.env.EXCUSE_CHANNEL_ID);
+    if (excuseChannel) {
+      const memberMention = interaction.member.toString();
+      await excuseChannel.send(
+        `📌 **Langzeit-Abmeldung**\n👤 ${memberMention}\n📅 Bis: **${datumInput}**\n📝 Grund: ${grund}`
+      );
     }
+
+    await interaction.reply({
+      content: `✅ Deine Abmeldung wurde erfasst.`,
+      ephemeral: true
+    });
+
+    // Tabelle im LINEUP_CHANNEL_ID aktualisieren
+    const lineupChannel = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
+    if (lineupChannel) sendTeilnehmerTabelle(lineupChannel, true);
+
+  } catch (err) {
+    console.error('❌ Fehler bei Langzeitabmeldung:', err);
+    await interaction.reply({ content: '⚠️ Fehler beim Eintragen.', ephemeral: true });
   }
+}
 });
 
 async function sendErinnerung(channel) {
@@ -287,3 +300,10 @@ async function sendErinnerung(channel) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.listen(port, () => {
+  console.log(`🌐 Webserver läuft auf Port ${port}`);
+});
