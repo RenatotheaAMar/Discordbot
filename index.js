@@ -218,4 +218,72 @@ client.on(Events.InteractionCreate, async interaction => {
         .setRequired(true);
       const reasonInput = new TextInputBuilder()
         .setCustomId('langzeitGrund')
-        .setLabel('Grund deiner Ab
+        .setLabel('Grund deiner Abmeldung (optional)')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false);
+
+      const row1 = new ActionRowBuilder().addComponents(dateInput);
+      const row2 = new ActionRowBuilder().addComponents(reasonInput);
+      modal.addComponents(row1, row2);
+
+      await interaction.showModal(modal);
+      return;
+    }
+
+    // Status setzen
+    memberStatus.set(userName, { status: auswahl, datum: null });
+
+    // Langzeit nicht hier (Modal)
+    await interaction.reply({ content: `Dein Status wurde auf **${auswahl}** gesetzt.`, ephemeral: true });
+
+    // Tabelle aktualisieren
+    const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
+    if (ch) await sendTeilnehmerTabelle(ch);
+
+    return;
+  }
+
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === 'langzeitModal') {
+      const userName = interaction.member?.displayName || interaction.user.username;
+      const datum = interaction.fields.getTextInputValue('langzeitDatum');
+      const grund = interaction.fields.getTextInputValue('langzeitGrund') || '';
+
+      memberStatus.set(userName, { status: 'Langzeitabmeldung', datum: datum });
+
+      await interaction.reply({ content: `Langzeit-Abmeldung eingetragen bis ${datum}.`, ephemeral: true });
+
+      // Langzeitmeldung im Channel posten
+      const ch = client.channels.cache.get(process.env.LINEUP_CHANNEL_ID);
+      if (ch) {
+        ch.send(`⚠️ **Langzeit-Abmeldung:** ${userName} ist bis ${datum} abgemeldet. ${grund}`);
+        await sendTeilnehmerTabelle(ch);
+      }
+    }
+  }
+});
+
+async function sendErinnerung(channel) {
+  if (!channel) return;
+
+  // Nur an Teilnehmer (Status Teilnahme und Kommt später)
+  const reminderNicks = [];
+  for (const [name, info] of memberStatus.entries()) {
+    if (info.status === 'Teilnahme' || info.status === 'Kommt später') reminderNicks.push(name);
+  }
+
+  if (reminderNicks.length === 0) return;
+
+  const mentionStr = reminderNicks.map(n => {
+    // Versuch Member zu finden zum Erwähnen
+    const guild = client.guilds.cache.get(process.env.GUILD_ID);
+    if (!guild) return n;
+
+    const member = guild.members.cache.find(m => m.displayName === n || m.user.username === n);
+    return member ? `<@${member.id}>` : n;
+  }).join(' ');
+
+  await channel.send(`🔔 Erinnerung: Bitte denkt an die Aufstellung um 20 Uhr! ${mentionStr}`);
+}
+
+client.login(process.env.DISCORD_TOKEN);
