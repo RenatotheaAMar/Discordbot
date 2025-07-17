@@ -10,6 +10,8 @@ const {
   REST,
   Routes,
   SlashCommandBuilder,
+  ModalBuilder,
+  TextInputBuilder,
 } = require('discord.js');
 const fs = require('fs');
 require('dotenv').config();
@@ -240,7 +242,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
           setMemberStatus(userId, 'Kommt später');
           break;
         case 'Langzeit': {
-          // Beispiel: Modal öffnen zum Datum + Grund eingeben
           const modal = new ModalBuilder()
             .setCustomId('modalLangzeit')
             .setTitle('Langzeit-Abmeldung');
@@ -264,18 +265,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
           modal.addComponents(row1, row2);
           await interaction.showModal(modal);
-          return; // kein Reply nötig hier
+          return;
         }
       }
 
-      // Antwort nur einmal senden - falls schon geantwortet, followUp nutzen
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ content: `Status gesetzt: ${interaction.customId === 'Abgemeldet' ? '❌ Abgemeldet' : interaction.customId === 'Teilnahme' ? '🟢 Teilnahme' : interaction.customId === 'KommtSpaeter' ? '⏰ Kommt später' : ''}`, ephemeral: true });
+        await interaction.followUp({ content: `Status gesetzt: ${
+          interaction.customId === 'Abgemeldet'
+            ? '❌ Abgemeldet'
+            : interaction.customId === 'Teilnahme'
+            ? '🟢 Teilnahme'
+            : interaction.customId === 'KommtSpaeter'
+            ? '⏰ Kommt später'
+            : ''
+        }`, ephemeral: true });
       } else {
-        await interaction.reply({ content: `Status gesetzt: ${interaction.customId === 'Abgemeldet' ? '❌ Abgemeldet' : interaction.customId === 'Teilnahme' ? '🟢 Teilnahme' : interaction.customId === 'KommtSpaeter' ? '⏰ Kommt später' : ''}`, ephemeral: true });
+        await interaction.reply({ content: `Status gesetzt: ${
+          interaction.customId === 'Abgemeldet'
+            ? '❌ Abgemeldet'
+            : interaction.customId === 'Teilnahme'
+            ? '🟢 Teilnahme'
+            : interaction.customId === 'KommtSpaeter'
+            ? '⏰ Kommt später'
+            : ''
+        }`, ephemeral: true });
       }
 
-      // Tabelle aktualisieren
       const ch = client.channels.cache.get(LINEUP_CHANNEL_ID);
       if (ch) await sendTeilnehmerTabelle(ch);
       return;
@@ -286,13 +301,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const datum = interaction.fields.getTextInputValue('datumInput');
         const grund = interaction.fields.getTextInputValue('grundInput');
 
-        await interaction.deferReply({ ephemeral: true }); // defere reply
+        await interaction.deferReply({ ephemeral: true });
 
         await handleLangzeitAbmeldung(interaction.user.id, datum, grund);
 
         await interaction.editReply({ content: '📆 Langzeit-Abmeldung eingetragen.' });
 
-        // Tabelle updaten
         const ch = client.channels.cache.get(LINEUP_CHANNEL_ID);
         if (ch) await sendTeilnehmerTabelle(ch);
       }
@@ -308,10 +322,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 client.login(process.env.DISCORD_TOKEN);
 
-
+// EXPRESS WEBSERVER (für Ping / Healthcheck)
 const app = express();
-const port = process.env.PORT || 3000;
 
+app.get('/', (req, res) => {
+  res.send('Bot läuft ✅');
+});
+
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`🌐 Webserver läuft auf Port ${port}`);
 });
