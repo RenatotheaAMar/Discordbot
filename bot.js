@@ -188,21 +188,19 @@ client.once('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
-  await scanMembers();
+  await scanMembers(); // Nur Mitglieder scannen, keine Nachricht senden
 
-  const ch = client.channels.cache.get(LINEUP_CHANNEL_ID);
-  if (ch) await sendTeilnehmerTabelle(ch, true);
-
-  // Optional: tägliche Erinnerung um 7 Uhr
+  // Cronjob um 7:00 Uhr morgens
   const cron = require('node-cron');
   cron.schedule('0 7 * * *', async () => {
     const ch = client.channels.cache.get(LINEUP_CHANNEL_ID);
     if (ch) {
       await sendErinnerung(ch);
-      await sendTeilnehmerTabelle(ch);
+      await sendTeilnehmerTabelle(ch, true);
     }
   });
 });
+
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
