@@ -1,6 +1,3 @@
-// ==========================================
-// 📦 Module
-// ==========================================
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -22,9 +19,6 @@ const {
   TextInputStyle,
 } = require('discord.js');
 
-// ==========================================
-// 🧠 Initialisierung
-// ==========================================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -34,16 +28,13 @@ const client = new Client({
   ],
 });
 
-const GUILD_ID      = process.env.GUILD_ID;
+const GUILD_ID = process.env.GUILD_ID;
 const LINEUP_CHANNEL_ID = process.env.LINEUP_CHANNEL_ID;
 const EXCUSE_CHANNEL_ID = process.env.EXCUSE_CHANNEL_ID;
 
 let memberStatus = new Map(); // userId => { name, status, datum, grund }
 let lastMessageId = null;
 
-// ==========================================
-// 🔧 Helferlein
-// ==========================================
 function saveLastMessageId(id) {
   try {
     fs.writeFileSync('./lastMessage.json', JSON.stringify({ id }));
@@ -60,7 +51,6 @@ function loadLastMessageId() {
   }
 }
 
-// Für Speicherung des letzten Tages, an dem Tabelle gesendet wurde
 const LAST_SENT_DAY_FILE = path.join(__dirname, 'lastSentDay.json');
 
 function saveLastSentDay(date) {
@@ -79,9 +69,6 @@ function loadLastSentDay() {
   }
 }
 
-// ==========================================
-// 🛠 Slash-Commands registrieren
-// ==========================================
 const commands = [
   new SlashCommandBuilder()
     .setName('reset')
@@ -97,9 +84,6 @@ const commands = [
     .setDescription('🔍 Mitglieder neu scannen'),
 ].map((c) => c.toJSON());
 
-// ==========================================
-// 🔍 Mitgliederscan
-// ==========================================
 async function scanMembers() {
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
@@ -124,16 +108,13 @@ async function scanMembers() {
     });
 
     console.log(
-      ✅ ${memberStatus.size} gültige Mitglieder mit "Member"-Rolle gefunden (ohne Bots).
+      `✅ ${memberStatus.size} gültige Mitglieder mit "Member"-Rolle gefunden (ohne Bots).`
     );
   } catch (err) {
     console.error('Fehler beim Mitglieder scannen:', err);
   }
 }
 
-// ==========================================
-// 📋 Tabelle senden / aktualisieren
-// ==========================================
 async function sendTeilnehmerTabelle(channel, forceNew = false) {
   try {
     const teilnahme = [];
@@ -157,7 +138,7 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
           reagiert.add(id);
           break;
         case 'Langzeitabmeldung':
-          langzeit.push(${info.name} (bis ${info.datum || '?'}));
+          langzeit.push(`${info.name} (bis ${info.datum || '?'})`);
           break;
       }
     }
@@ -173,30 +154,30 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
       .setDescription('🕗 Aufstellung 20 Uhr! Reagierpflicht!')
       .addFields(
         {
-          name: ✅ Teilnahme (${teilnahme.length}),
+          name: `✅ Teilnahme (${teilnahme.length})`,
           value: teilnahme.length ? teilnahme.join('\n') : '–',
           inline: true,
         },
         {
-          name: ❌ Abgemeldet (${abgemeldet.length}),
+          name: `❌ Abgemeldet (${abgemeldet.length})`,
           value: abgemeldet.length ? abgemeldet.join('\n') : '–',
           inline: true,
         },
         {
-          name: ⏰ Kommt später (${spaeter.length}),
+          name: `⏰ Kommt später (${spaeter.length})`,
           value: spaeter.length ? spaeter.join('\n') : '–',
           inline: true,
         },
         {
-          name: ⚠ Noch nicht reagiert (${nichtReagiert.length}),
+          name: `⚠ Noch nicht reagiert (${nichtReagiert.length})`,
           value:
-            nichtReagiert.length ?
-              nichtReagiert.map((id) => memberStatus.get(id).name).join('\n') :
-              '–',
+            nichtReagiert.length
+              ? nichtReagiert.map((id) => memberStatus.get(id).name).join('\n')
+              : '–',
           inline: true,
         },
         {
-          name: 📆 Langzeitabmeldungen (${langzeit.length}),
+          name: `📆 Langzeitabmeldungen (${langzeit.length})`,
           value: langzeit.length ? langzeit.join('\n') : '–',
           inline: true,
         }
@@ -242,49 +223,33 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
   }
 }
 
-// ==========================================
-// 🔔 Erinnerung
-// ==========================================
 async function sendErinnerung(channel) {
   try {
-    await channel.send(
-      '🔔 *Erinnerung:* Bitte tragt euren Status in der Tabelle ein!'
-    );
+    await channel.send('🔔 *Erinnerung:* Bitte tragt euren Status in der Tabelle ein!');
   } catch (e) {
     console.error('Fehler beim Senden der Erinnerung:', e);
   }
 }
 
-// ==========================================
-// 📝 Status setzen (angepasst für Langzeit-Status Logik)
-// ==========================================
 function setMemberStatus(userId, status, datum = null, grund = null) {
   if (!memberStatus.has(userId)) return;
 
   const old = memberStatus.get(userId);
 
-  // Nur bei Statuswechsel von Langzeitabmeldung zu Teilnahme, Abgemeldet oder Kommt später aufheben
   if (old.status === 'Langzeitabmeldung' && status !== 'Langzeitabmeldung') {
-    // Langzeitstatus aufheben, neuer Status wird gesetzt
     memberStatus.set(userId, { name: old.name, status, datum, grund });
   } else if (old.status !== 'Langzeitabmeldung') {
-    // Normaler Statuswechsel möglich
     memberStatus.set(userId, { name: old.name, status, datum, grund });
   }
-  // Sonst keine Änderung wenn alt Langzeit und neuer Status Langzeit (bleibt wie gehabt)
 }
 
-// ==========================================
-// 📆 Langzeit-Abmeldung
-// ==========================================
 async function handleLangzeitAbmeldung(userId, datum, grund) {
   setMemberStatus(userId, 'Langzeitabmeldung', datum, grund);
 
   const excuseChannel = client.channels.cache.get(EXCUSE_CHANNEL_ID);
   if (excuseChannel) {
     await excuseChannel.send({
-      content:
-        📌 **Langzeit-Abmeldung**\n👤 <@${userId}>\n📅 Bis: **${datum}**\n📝 Grund: ${grund || '–'},
+      content: `📌 **Langzeit-Abmeldung**\n👤 <@${userId}>\n📅 Bis: **${datum}**\n📝 Grund: ${grund || '–'}`,
     });
   }
 
@@ -292,19 +257,13 @@ async function handleLangzeitAbmeldung(userId, datum, grund) {
   if (lineupChannel) await sendTeilnehmerTabelle(lineupChannel, false);
 }
 
-// ==========================================
-// Hilfsfunktion für aktuelles Datum (YYYY-MM-DD)
-// ==========================================
 function getCurrentDate() {
   const now = new Date();
   return now.toISOString().split('T')[0];
 }
 
-// ==========================================
-// 🚀 Ready-Event
-// ==========================================
 client.once('ready', async () => {
-  console.log(✅ Bot ist online als: ${client.user.tag});
+  console.log(`✅ Bot ist online als: ${client.user.tag}`);
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
@@ -315,7 +274,6 @@ client.once('ready', async () => {
 
   await scanMembers();
 
-  // Cronjob nur laden, wenn node-cron vorhanden ist
   let cron;
   try {
     cron = require('node-cron');
@@ -324,7 +282,6 @@ client.once('ready', async () => {
   }
 
   if (cron) {
-    // Cronjob um 9 Uhr
     cron.schedule('0 9 * * *', async () => {
       const ch = await client.channels.fetch(LINEUP_CHANNEL_ID).catch(() => null);
       if (!ch) return;
@@ -339,7 +296,6 @@ client.once('ready', async () => {
 
       await scanMembers();
 
-      // Nur Teilnehmer des heutigen Tages bearbeiten (außer Langzeitabmeldung)
       memberStatus.forEach((val, key) => {
         if (val.status !== 'Langzeitabmeldung' && val.datum !== today) {
           memberStatus.set(key, { ...val, status: null, datum: null, grund: null });
@@ -352,9 +308,6 @@ client.once('ready', async () => {
   }
 });
 
-// ==========================================
-// 💬 Interaktionen
-// ==========================================
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
@@ -465,15 +418,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// ==========================================
-// 🔑 Login
-// ==========================================
 client.login(process.env.DISCORD_TOKEN).catch(console.error);
 
-// ==========================================
-// 🌐 Express Webserver
-// ==========================================
 const app = express();
 app.get('/', (_req, res) => res.send('Bot läuft ✅'));
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(🌐 Webserver läuft auf Port ${port}));
+app.listen(port, () => console.log(`🌐 Webserver läuft auf Port ${port}`));
