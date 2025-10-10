@@ -3,6 +3,7 @@
 // ==========================================
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const {
@@ -59,8 +60,27 @@ function loadLastMessageId() {
   }
 }
 
+// Für Speicherung des letzten Tages, an dem Tabelle gesendet wurde
+const LAST_SENT_DAY_FILE = path.join(__dirname, 'lastSentDay.json');
+
+function saveLastSentDay(date) {
+  try {
+    fs.writeFileSync(LAST_SENT_DAY_FILE, JSON.stringify({ date }));
+  } catch (err) {
+    console.error('Fehler beim Speichern des letzten Sendetags:', err);
+  }
+}
+
+function loadLastSentDay() {
+  try {
+    return JSON.parse(fs.readFileSync(LAST_SENT_DAY_FILE)).date;
+  } catch {
+    return null;
+  }
+}
+
 // ==========================================
-// 🛠️ Slash-Commands registrieren
+// 🛠 Slash-Commands registrieren
 // ==========================================
 const commands = [
   new SlashCommandBuilder()
@@ -104,7 +124,7 @@ async function scanMembers() {
     });
 
     console.log(
-      `✅ ${memberStatus.size} gültige Mitglieder mit "Member"-Rolle gefunden (ohne Bots).`
+      ✅ ${memberStatus.size} gültige Mitglieder mit "Member"-Rolle gefunden (ohne Bots).
     );
   } catch (err) {
     console.error('Fehler beim Mitglieder scannen:', err);
@@ -137,7 +157,7 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
           reagiert.add(id);
           break;
         case 'Langzeitabmeldung':
-          langzeit.push(`${info.name} (bis ${info.datum || '?'})`);
+          langzeit.push(${info.name} (bis ${info.datum || '?'}));
           break;
       }
     }
@@ -153,22 +173,22 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
       .setDescription('🕗 Aufstellung 20 Uhr! Reagierpflicht!')
       .addFields(
         {
-          name: `✅ Teilnahme (${teilnahme.length})`,
+          name: ✅ Teilnahme (${teilnahme.length}),
           value: teilnahme.length ? teilnahme.join('\n') : '–',
           inline: true,
         },
         {
-          name: `❌ Abgemeldet (${abgemeldet.length})`,
+          name: ❌ Abgemeldet (${abgemeldet.length}),
           value: abgemeldet.length ? abgemeldet.join('\n') : '–',
           inline: true,
         },
         {
-          name: `⏰ Kommt später (${spaeter.length})`,
+          name: ⏰ Kommt später (${spaeter.length}),
           value: spaeter.length ? spaeter.join('\n') : '–',
           inline: true,
         },
         {
-          name: `⚠️ Noch nicht reagiert (${nichtReagiert.length})`,
+          name: ⚠ Noch nicht reagiert (${nichtReagiert.length}),
           value:
             nichtReagiert.length ?
               nichtReagiert.map((id) => memberStatus.get(id).name).join('\n') :
@@ -176,7 +196,7 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
           inline: true,
         },
         {
-          name: `📆 Langzeitabmeldungen (${langzeit.length})`,
+          name: 📆 Langzeitabmeldungen (${langzeit.length}),
           value: langzeit.length ? langzeit.join('\n') : '–',
           inline: true,
         }
@@ -211,7 +231,7 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
         await oldMsg.edit({ embeds: [embed], components: [row] });
         return;
       } catch {
-        console.log('⚠️ Vorherige Nachricht nicht gefunden, sende neu…');
+        console.log('⚠ Vorherige Nachricht nicht gefunden, sende neu…');
       }
     }
 
@@ -228,7 +248,7 @@ async function sendTeilnehmerTabelle(channel, forceNew = false) {
 async function sendErinnerung(channel) {
   try {
     await channel.send(
-      '🔔 **Erinnerung:** Bitte tragt euren Status in der Tabelle ein!'
+      '🔔 *Erinnerung:* Bitte tragt euren Status in der Tabelle ein!'
     );
   } catch (e) {
     console.error('Fehler beim Senden der Erinnerung:', e);
@@ -236,12 +256,22 @@ async function sendErinnerung(channel) {
 }
 
 // ==========================================
-// 📝 Status setzen
+// 📝 Status setzen (angepasst für Langzeit-Status Logik)
 // ==========================================
 function setMemberStatus(userId, status, datum = null, grund = null) {
   if (!memberStatus.has(userId)) return;
+
   const old = memberStatus.get(userId);
-  memberStatus.set(userId, { ...old, status, datum, grund });
+
+  // Nur bei Statuswechsel von Langzeitabmeldung zu Teilnahme, Abgemeldet oder Kommt später aufheben
+  if (old.status === 'Langzeitabmeldung' && status !== 'Langzeitabmeldung') {
+    // Langzeitstatus aufheben, neuer Status wird gesetzt
+    memberStatus.set(userId, { name: old.name, status, datum, grund });
+  } else if (old.status !== 'Langzeitabmeldung') {
+    // Normaler Statuswechsel möglich
+    memberStatus.set(userId, { name: old.name, status, datum, grund });
+  }
+  // Sonst keine Änderung wenn alt Langzeit und neuer Status Langzeit (bleibt wie gehabt)
 }
 
 // ==========================================
@@ -254,7 +284,7 @@ async function handleLangzeitAbmeldung(userId, datum, grund) {
   if (excuseChannel) {
     await excuseChannel.send({
       content:
-        `📌 **Langzeit-Abmeldung**\n👤 <@${userId}>\n📅 Bis: **${datum}**\n📝 Grund: ${grund || '–'}`,
+        📌 **Langzeit-Abmeldung**\n👤 <@${userId}>\n📅 Bis: **${datum}**\n📝 Grund: ${grund || '–'},
     });
   }
 
@@ -263,10 +293,18 @@ async function handleLangzeitAbmeldung(userId, datum, grund) {
 }
 
 // ==========================================
+// Hilfsfunktion für aktuelles Datum (YYYY-MM-DD)
+// ==========================================
+function getCurrentDate() {
+  const now = new Date();
+  return now.toISOString().split('T')[0];
+}
+
+// ==========================================
 // 🚀 Ready-Event
 // ==========================================
 client.once('ready', async () => {
-  console.log(`✅ Bot ist online als: ${client.user.tag}`);
+  console.log(✅ Bot ist online als: ${client.user.tag});
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
@@ -282,23 +320,34 @@ client.once('ready', async () => {
   try {
     cron = require('node-cron');
   } catch {
-    console.warn('⚠️ node-cron nicht installiert – Cronjobs deaktiviert.');
+    console.warn('⚠ node-cron nicht installiert – Cronjobs deaktiviert.');
   }
 
   if (cron) {
-    cron.schedule('0 7 * * *', async () => {
+    // Cronjob um 9 Uhr
+    cron.schedule('0 9 * * *', async () => {
       const ch = await client.channels.fetch(LINEUP_CHANNEL_ID).catch(() => null);
       if (!ch) return;
 
+      const today = getCurrentDate();
+      const lastSentDay = loadLastSentDay();
+
+      if (lastSentDay === today) {
+        console.log('Tabelle für heute wurde schon gesendet, keine neue Nachricht.');
+        return;
+      }
+
       await scanMembers();
+
+      // Nur Teilnehmer des heutigen Tages bearbeiten (außer Langzeitabmeldung)
       memberStatus.forEach((val, key) => {
-        if (val.status !== 'Langzeitabmeldung') {
+        if (val.status !== 'Langzeitabmeldung' && val.datum !== today) {
           memberStatus.set(key, { ...val, status: null, datum: null, grund: null });
         }
       });
 
-      await sendErinnerung(ch);
       await sendTeilnehmerTabelle(ch, true);
+      saveLastSentDay(today);
     });
   }
 });
@@ -340,15 +389,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.isButton()) {
       const userId = interaction.user.id;
+      const today = getCurrentDate();
+
       switch (interaction.customId) {
         case 'Teilnahme':
-          setMemberStatus(userId, 'Teilnahme');
+          setMemberStatus(userId, 'Teilnahme', today);
           break;
         case 'Abgemeldet':
-          setMemberStatus(userId, 'Abgemeldet');
+          setMemberStatus(userId, 'Abgemeldet', today);
           break;
         case 'KommtSpaeter':
-          setMemberStatus(userId, 'Kommt später');
+          setMemberStatus(userId, 'Kommt später', today);
           break;
         case 'Langzeit': {
           const modal = new ModalBuilder()
@@ -425,4 +476,4 @@ client.login(process.env.DISCORD_TOKEN).catch(console.error);
 const app = express();
 app.get('/', (_req, res) => res.send('Bot läuft ✅'));
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`🌐 Webserver läuft auf Port ${port}`));
+app.listen(port, () => console.log(🌐 Webserver läuft auf Port ${port}));
