@@ -1,3 +1,4 @@
+```js
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -262,7 +263,7 @@ function getCurrentDate() {
   return now.toISOString().split('T')[0];
 }
 
-// Neu: Globale Variable zum Verhindern mehrfachen Setups
+// Globale Variable zum Verhindern mehrfacher Cronjobs
 let cronScheduled = false;
 
 client.once('ready', async () => {
@@ -277,39 +278,43 @@ client.once('ready', async () => {
 
   await scanMembers();
 
-  let cron;
-  try {
-    cron = require('node-cron');
-  } catch {
-    console.warn('⚠ node-cron nicht installiert – Cronjobs deaktiviert.');
+  const lineupChannel = await client.channels.fetch(LINEUP_CHANNEL_ID).catch(() => null);
+  if (!lineupChannel) {
+    console.error('Lineup Channel nicht gefunden.');
+    return;
   }
 
-  if (cron && !cronScheduled) {
-    cronScheduled = true; // Verhindert mehrfaches Setup
+  const today = getCurrentDate();
+  const lastSentDay = loadLastSentDay();
 
+  if (lastSentDay === today) {
+    console.log('Tabelle für heute wurde schon gesendet, sende beim Start keine Tabelle.');
+  } else {
+    console.log('Keine Tabelle gefunden für heute, sende erst beim Cronjob.');
+    // Optional: Hier könntest Du direkt senden, z.B.:
+    // await sendTeilnehmerTabelle(lineupChannel);
+  }
+
+  if (!cronScheduled) {
+    cronScheduled = true;
+
+    const cron = require('node-cron');
     cron.schedule('0 9 * * *', async () => {
       const ch = await client.channels.fetch(LINEUP_CHANNEL_ID).catch(() => null);
       if (!ch) return;
 
       const today = getCurrentDate();
       const lastSentDay = loadLastSentDay();
-
       if (lastSentDay === today) {
-        console.log('Tabelle für heute wurde schon gesendet, keine neue Nachricht.');
+        console.log('Tabelle für heute wurde schon gesendet, keine neue Tabelle.');
         return;
       }
 
       await scanMembers();
-
-      memberStatus.forEach((val, key) => {
-        if (val.status !== 'Langzeitabmeldung' && val.datum !== today) {
-          memberStatus.set(key, { ...val, status: null, datum: null, grund: null });
-        }
-      });
-
       await sendTeilnehmerTabelle(ch, true);
       saveLastSentDay(today);
-    });
+      console.log('✅ Tabelle erfolgreich gesendet (Cronjob).');
+    }, { timezone: 'Europe/Berlin' });
   }
 });
 
@@ -428,4 +433,4 @@ client.login(process.env.DISCORD_TOKEN).catch(console.error);
 const app = express();
 app.get('/', (_req, res) => res.send('Bot läuft ✅'));
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`🌐 Webserver läuft auf Port ${port}`));
+app.listen(port, () => console.log(`🌐 Webserver läuft auf Port ${port}`));
