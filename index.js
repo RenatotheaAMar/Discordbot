@@ -1,8 +1,8 @@
-// ✅ Discord Lineup Bot (Render FREE Webservice Version)
+// Discord Lineup Bot mit festen IDs und Token
+
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
-require("dotenv").config();
 const cron = require("node-cron");
 const {
   Client,
@@ -14,16 +14,13 @@ const {
   Events,
 } = require("discord.js");
 
-// ---- ENV Variablen ----
-const {
-  DISCORD_TOKEN,
-  GUILD_ID,
-  LINEUP_CHANNEL_ID,
-  EXCUSE_CHANNEL_ID,
-  PORT = 3000,
-} = process.env;
+// Feste Variablen (statt env)
+const DISCORD_TOKEN = "MTM4MzIzMDc4OTI4MTUxNzcxMQ.G0ej5m.otE0K3VtGUt-AH7gF0UuTjAt6o3EakPyVqOIl8";
+const GUILD_ID = "1238804639546343454";
+const LINEUP_CHANNEL_ID = "1383523237631098880";
+const EXCUSE_CHANNEL_ID = "1290999989480198176";
+const PORT = 3000;
 
-// ---- Discord Setup ----
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -34,16 +31,15 @@ const client = new Client({
 });
 
 let memberStatus = new Map();
-let lastMessageId = null;
-let cronRunning = false; // Singleton-Flag
+let cronRunning = false;
 
-// ---- Speicherdateien ----
 const LAST_SENT_DAY_FILE = path.join(__dirname, "lastSentDay.json");
 const LAST_MESSAGE_FILE = path.join(__dirname, "lastMessage.json");
 
 function saveLastMessageId(id) {
   fs.writeFileSync(LAST_MESSAGE_FILE, JSON.stringify({ id }, null, 2));
 }
+
 function loadLastMessageId() {
   try {
     return JSON.parse(fs.readFileSync(LAST_MESSAGE_FILE)).id;
@@ -51,6 +47,7 @@ function loadLastMessageId() {
     return null;
   }
 }
+
 function saveLastSentDay(date) {
   fs.writeFileSync(LAST_SENT_DAY_FILE, JSON.stringify({ date }, null, 2));
 }
@@ -187,7 +184,6 @@ client.once("ready", async () => {
   console.log(`✅ Bot aktiv als: ${client.user.tag}`);
   await scanMembers();
 
-  // ---- Cronjob nur einmal aktivieren ----
   if (!cronRunning) {
     cronRunning = true;
     cron.schedule(
@@ -201,16 +197,35 @@ client.once("ready", async () => {
         await scanMembers();
         await sendTeilnehmerTabelle(ch, true);
         saveLastSentDay(today);
-        console.log("📆 Tabelle gesendet um 09:00 Uhr");
+        console.log("📆 Tabelle heute gesendet");
       },
       { timezone: "Europe/Berlin" }
     );
   }
 });
 
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+  const userId = interaction.user.id;
+  const today = getCurrentDate();
+
+  const old = memberStatus.get(userId);
+  const statusName =
+    interaction.customId === "Teilnahme"
+      ? "🟢 Teilnahme"
+      : interaction.customId === "Abgemeldet"
+      ? "❌ Abgemeldet"
+      : "⏰ Kommt später";
+
+  memberStatus.set(userId, { ...old, status: statusName, datum: today });
+  await interaction.reply({ content: `Status gesetzt: ${statusName}`, ephemeral: true });
+
+  const ch = await client.channels.fetch(LINEUP_CHANNEL_ID).catch(() => null);
+  if (ch) await sendTeilnehmerTabelle(ch);
+});
+
 client.login(DISCORD_TOKEN);
 
-// ---- Webserver für Render Free Plan ----
 const app = express();
 app.get("/", (_, res) => res.send("Bot läuft ✅"));
 app.listen(PORT, () => console.log(`🌐 Webserver auf Port ${PORT}`));
