@@ -82,7 +82,19 @@ const commands = [
   new SlashCommandBuilder()
     .setName('scan')
     .setDescription('🔍 Mitglieder neu scannen'),
-].map((c) => c.toJSON());
+  new SlashCommandBuilder()
+    .setName('langzeit')
+    .setDescription('📆 Setze Langzeitabmeldung für einen Nutzer')
+    .addUserOption(option =>
+      option.setName('user').setDescription('Mitglied auswählen').setRequired(true)
+    )
+    .addStringOption(option =>
+      option.setName('datum').setDescription('Bis wann? (z.B. 31.12.2025)').setRequired(false)
+    )
+    .addStringOption(option =>
+      option.setName('grund').setDescription('Grund der Langzeitabmeldung').setRequired(false)
+    )
+].map(c => c.toJSON());
 
 let langzeitRolle = null;
 
@@ -398,6 +410,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } else if (commandName === 'scan') {
         await scanMembers();
         await interaction.reply({ content: '🔍 Mitglieder wurden neu gescannt.', ephemeral: true });
+      } else if (commandName === 'langzeit') {
+        const user = interaction.options.getUser('user');
+        const datum = interaction.options.getString('datum') || null;
+        const grund = interaction.options.getString('grund') || null;
+
+        if (!user) {
+          await interaction.reply({ content: 'Bitte gib ein Mitglied an.', ephemeral: true });
+          return;
+        }
+
+        await setMemberStatus(user.id, 'Langzeitabmeldung', datum, grund);
+
+        await interaction.reply({
+          content: `📆 ${user.username} wurde als Langzeit-abgemeldet eingetragen${datum ? ` bis ${datum}` : ''}${grund ? ` mit Grund: ${grund}` : ''}.`,
+          ephemeral: false,
+        });
+
+        const excuseChannel = client.channels.cache.get(EXCUSE_CHANNEL_ID);
+        if (excuseChannel) {
+          await excuseChannel.send({
+            content: `📌 **Langzeit-Abmeldung**\n👤 <@${user.id}>\n📅 Bis: **${datum || '–'}**\n📝 Grund: ${grund || '–'}`,
+          });
+        }
+
+        const lineupChannel = client.channels.cache.get(LINEUP_CHANNEL_ID);
+        if (lineupChannel) await sendTeilnehmerTabelle(lineupChannel, true);
       }
       return;
     }
