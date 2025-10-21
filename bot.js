@@ -93,7 +93,10 @@ const commands = [
     )
     .addStringOption(option =>
       option.setName('grund').setDescription('Grund der Langzeitabmeldung').setRequired(false)
-    )
+    ),
+  new SlashCommandBuilder()
+    .setName('langzeitliste')
+    .setDescription('🔍 Liste aller langzeit abgemeldeten Mitglieder'),
 ].map(c => c.toJSON());
 
 let langzeitRolle = null;
@@ -447,6 +450,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const lineupChannel = client.channels.cache.get(LINEUP_CHANNEL_ID);
         if (lineupChannel) await sendTeilnehmerTabelle(lineupChannel, true);
+      } else if (commandName === 'langzeitliste') {
+        const guild = await client.guilds.fetch(GUILD_ID);
+        const role = guild.roles.cache.find(r => r.name === 'Langzeit Abmeldung');
+        if (!role) {
+          await interaction.reply({ content: 'Rolle "Langzeit Abmeldung" nicht gefunden.', ephemeral: true });
+          return;
+        }
+
+        await guild.members.fetch();
+        const members = role.members.map(m => `${m.displayName} (${m.user.tag})`);
+
+        if (members.length === 0) {
+          await interaction.reply({ content: 'Keine Mitglieder mit Langzeit Abmeldung.', ephemeral: true });
+        } else {
+          // Nachricht ggf. in Blöcken senden falls zu lang
+          const chunkSize = 50;
+          for (let i = 0; i < members.length; i += chunkSize) {
+            const chunk = members.slice(i, i + chunkSize).join('\n');
+            await interaction.channel.send(`📋 Langzeit Abgemeldete:\n${chunk}`);
+          }
+          await interaction.reply({ content: 'Liste gesendet.', ephemeral: true });
+        }
       }
       return;
     }
