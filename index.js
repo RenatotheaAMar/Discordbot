@@ -287,7 +287,6 @@ function getCurrentDate() {
   return now.toISOString().split('T')[0];
 }
 
-// Globale Variable zum Verhindern mehrfacher Cronjobs
 let cronScheduled = false;
 
 client.once('ready', async () => {
@@ -323,6 +322,8 @@ client.once('ready', async () => {
     cronScheduled = true;
 
     const cron = require('node-cron');
+
+    // Cronjob: Tabelle um 9 Uhr senden
     cron.schedule('0 9 * * *', async () => {
       const ch = await client.channels.fetch(LINEUP_CHANNEL_ID).catch(() => null);
       if (!ch) return;
@@ -338,6 +339,33 @@ client.once('ready', async () => {
       await sendTeilnehmerTabelle(ch, true);
       saveLastSentDay(today);
       console.log('✅ Tabelle erfolgreich gesendet (Cronjob).');
+    }, { timezone: 'Europe/Berlin' });
+
+    // Cronjob: Erinnerung 15 Minuten vor 20 Uhr
+    cron.schedule('45 19 * * *', async () => {
+      const ch = await client.channels.fetch(LINEUP_CHANNEL_ID).catch(() => null);
+      if (!ch) return;
+
+      const teilnehmerIds = [...memberStatus.entries()]
+        .filter(([_, info]) => info.status === 'Teilnahme')
+        .map(([id, info]) => ({ id, name: info.name }));
+
+      if (teilnehmerIds.length === 0) {
+        console.log('Keine Teilnehmer für Erinnerung gefunden.');
+        return;
+      }
+
+      const mentions = teilnehmerIds.map(t => `<@${t.id}>`).join(' ');
+      const names = teilnehmerIds.map(t => t.name).join(', ');
+
+      const message = `🔔 Erinnerung an die Aufstellung um 20 Uhr:\n${mentions}\nTeilnehmer: ${names}`;
+
+      try {
+        await ch.send(message);
+        console.log('🔔 Erinnerung an Teilnehmer um 19:45 gesendet.');
+      } catch (e) {
+        console.error('Fehler beim Senden der Erinnerung:', e);
+      }
     }, { timezone: 'Europe/Berlin' });
   }
 });
