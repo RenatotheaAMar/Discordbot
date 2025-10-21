@@ -115,18 +115,29 @@ async function scanMembers() {
     const guild = await client.guilds.fetch(GUILD_ID);
     await guild.members.fetch();
 
-    const role = guild.roles.cache.find((r) => r.name === 'Member');
-    if (!role) {
+    const roleMember = guild.roles.cache.find((r) => r.name === 'Member');
+    const roleLangzeit = guild.roles.cache.find((r) => r.name === 'Langzeit Abmeldung');
+
+    if (!roleMember) {
       console.error('Rolle "Member" nicht gefunden!');
+      return;
+    }
+    if (!roleLangzeit) {
+      console.error('Rolle "Langzeit Abmeldung" nicht gefunden!');
       return;
     }
 
     memberStatus.clear();
+
     guild.members.cache.forEach((member) => {
-      if (!member.user.bot && member.roles.cache.has(role.id)) {
+      if (!member.user.bot && member.roles.cache.has(roleMember.id)) {
+        let status = null;
+        if (member.roles.cache.has(roleLangzeit.id)) {
+          status = 'Langzeitabmeldung';
+        }
         memberStatus.set(member.user.id, {
           name: member.displayName,
-          status: null,
+          status: status,
           datum: null,
           grund: null,
         });
@@ -134,7 +145,7 @@ async function scanMembers() {
     });
 
     console.log(
-      `✅ ${memberStatus.size} gültige Mitglieder mit "Member"-Rolle gefunden (ohne Bots).`
+      `✅ ${memberStatus.size} Mitglieder mit "Member"-Rolle gescannt, inklusive Langzeit-Abmeldungen.`
     );
   } catch (err) {
     console.error('Fehler beim Mitglieder scannen:', err);
@@ -286,7 +297,7 @@ async function handleLangzeitAbmeldung(userId, datum, grund) {
   const excuseChannel = client.channels.cache.get(EXCUSE_CHANNEL_ID);
   if (excuseChannel) {
     await excuseChannel.send({
-      content: `📌 **Langzeit-Abmeldung**\n👤 <@${userId}>\n📅 Bis: **${datum}**\n📝 Grund: ${grund || '–'}`,
+      content: `📌 **Langzeit-Abmeldung**\n👤 <@${userId}>\n📅 Bis: **${datum || '–'}**\n📝 Grund: ${grund || '–'}`,
     });
   }
 
