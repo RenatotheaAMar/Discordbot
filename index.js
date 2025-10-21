@@ -84,6 +84,20 @@ const commands = [
     .setDescription('🔍 Mitglieder neu scannen'),
 ].map((c) => c.toJSON());
 
+let langzeitRolle = null;
+
+async function fetchLangzeitRolle() {
+  try {
+    const guild = await client.guilds.fetch(GUILD_ID);
+    langzeitRolle = guild.roles.cache.find(r => r.name === 'Langzeit Abmeldung');
+    if (!langzeitRolle) {
+      console.error('Rolle "Langzeit Abmeldung" nicht gefunden!');
+    }
+  } catch (err) {
+    console.error('Fehler beim Laden der Langzeit Abmeldung-Rolle:', err);
+  }
+}
+
 async function scanMembers() {
   try {
     const guild = await client.guilds.fetch(GUILD_ID);
@@ -231,20 +245,31 @@ async function sendErinnerung(channel) {
   }
 }
 
-function setMemberStatus(userId, status, datum = null, grund = null) {
+async function setMemberStatus(userId, status, datum = null, grund = null) {
   if (!memberStatus.has(userId)) return;
 
   const old = memberStatus.get(userId);
+  memberStatus.set(userId, { name: old.name, status, datum, grund });
 
-  if (old.status === 'Langzeitabmeldung' && status !== 'Langzeitabmeldung') {
-    memberStatus.set(userId, { name: old.name, status, datum, grund });
-  } else if (old.status !== 'Langzeitabmeldung') {
-    memberStatus.set(userId, { name: old.name, status, datum, grund });
+  const guild = await client.guilds.fetch(GUILD_ID);
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member || !langzeitRolle) return;
+
+  if (status === 'Langzeitabmeldung') {
+    if (!member.roles.cache.has(langzeitRolle.id)) {
+      await member.roles.add(langzeitRolle);
+      console.log(`Rolle 'Langzeit Abmeldung' an ${member.displayName} vergeben.`);
+    }
+  } else {
+    if (member.roles.cache.has(langzeitRolle.id)) {
+      await member.roles.remove(langzeitRolle);
+      console.log(`Rolle 'Langzeit Abmeldung' von ${member.displayName} entfernt.`);
+    }
   }
 }
 
 async function handleLangzeitAbmeldung(userId, datum, grund) {
-  setMemberStatus(userId, 'Langzeitabmeldung', datum, grund);
+  await setMemberStatus(userId, 'Langzeitabmeldung', datum, grund);
 
   const excuseChannel = client.channels.cache.get(EXCUSE_CHANNEL_ID);
   if (excuseChannel) {
@@ -268,6 +293,8 @@ let cronScheduled = false;
 client.once('ready', async () => {
   console.log(`✅ Bot ist online als: ${client.user.tag}`);
 
+  await fetchLangzeitRolle();
+
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
@@ -290,8 +317,6 @@ client.once('ready', async () => {
     console.log('Tabelle für heute wurde schon gesendet, sende beim Start keine Tabelle.');
   } else {
     console.log('Keine Tabelle gefunden für heute, sende erst beim Cronjob.');
-    // Optional: Hier könntest Du direkt senden, z.B.:
-    // await sendTeilnehmerTabelle(lineupChannel);
   }
 
   if (!cronScheduled) {
@@ -355,13 +380,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       switch (interaction.customId) {
         case 'Teilnahme':
-          setMemberStatus(userId, 'Teilnahme', today);
+          await setMemberStatus(userId, 'Teilnahme', today);
           break;
         case 'Abgemeldet':
-          setMemberStatus(userId, 'Abgemeldet', today);
+          await setMemberStatus(userId, 'Abgemeldet', today);
           break;
         case 'KommtSpaeter':
-          setMemberStatus(userId, 'Kommt später', today);
+          await setMemberStatus(userId, 'Kommt später', today);
           break;
         case 'Langzeit': {
           const modal = new ModalBuilder()
